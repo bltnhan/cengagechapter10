@@ -288,31 +288,29 @@ def _json_to_df(s):
     return pd.read_json(io.StringIO(s),orient="split")
 
 def _sanitize_df(df: pd.DataFrame) -> pd.DataFrame:
-    """Chuyển tất cả dtype không tương thích về str/float để tránh lỗi PyArrow."""
+    """Convert tất cả column về dtype PyArrow-compatible. Không điều kiện."""
     df = df.copy()
-    # Tên cột phải là string
     df.columns = [str(c) for c in df.columns]
     for col in df.columns:
-        dtype = df[col].dtype
         try:
-            # Extension types (StringDtype, BooleanDtype, Int64Dtype...) → về numpy gốc
+            dtype = df[col].dtype
+            # Extension types → unwrap về object trước
             if pd.api.types.is_extension_array_dtype(dtype):
                 df[col] = df[col].astype(object)
                 dtype = df[col].dtype
-
-            # Object column có giá trị hỗn hợp → convert toàn bộ về string
+            # Object → str vô điều kiện (handles str+int+float mixed)
             if dtype == object:
-                # Kiểm tra xem có giá trị không phải str không
-                sample = df[col].dropna().head(50)
-                if not all(isinstance(v, str) for v in sample):
-                    df[col] = df[col].astype(str).replace("nan", "")
-            # numpy Float64 / float không chuẩn
-            elif "float" in str(dtype).lower() and dtype != np.float64:
+                df[col] = df[col].fillna("").astype(str)
+                df[col] = df[col].replace("nan", "").replace("<NA>", "")
+            # Non-standard float → float64
+            elif pd.api.types.is_float_dtype(dtype) and dtype != np.float64:
                 df[col] = df[col].astype(np.float64)
+            # Non-standard int → int64
+            elif pd.api.types.is_integer_dtype(dtype) and dtype != np.int64:
+                df[col] = df[col].astype(np.int64)
         except Exception:
-            # Cuối cùng: ép về string cho an toàn tuyệt đối
             try:
-                df[col] = df[col].astype(str).replace("nan", "")
+                df[col] = df[col].fillna("").astype(str)
             except Exception:
                 df[col] = ""
     return df
@@ -720,8 +718,14 @@ def run_classification(method,df,target,features,test_size,balance):
     with col_a:
         st.markdown('<div class="chart-title">Confusion Matrix</div>',unsafe_allow_html=True)
         fig,ax=_dark_fig(5,4)
-        sns.heatmap(confusion_matrix(y_te,y_pred),annot=True,fmt='d',cmap='Blues',ax=ax,
-                    linewidths=.5,linecolor='#374151',annot_kws={"color":"#fff","size":12})
+        cm = confusion_matrix(y_te, y_pred)
+        sns.heatmap(cm, annot=False, fmt='d', cmap='Blues', ax=ax,
+                    linewidths=.5, linecolor='#374151')
+        # Chữ đen trên tất cả ô — dễ đọc nhất
+        for _i in range(cm.shape[0]):
+            for _j in range(cm.shape[1]):
+                ax.text(_j + 0.5, _i + 0.5, str(cm[_i, _j]),
+                        ha='center', va='center', fontsize=14, fontweight='bold', color='black')
         ax.set_title("Confusion Matrix",color='#e5e7eb')
         ax.set_xlabel("Predicted",color='#9ca3af'); ax.set_ylabel("Actual",color='#9ca3af')
         fig_to_st(fig, save_key=method)
@@ -846,7 +850,7 @@ def run_association(df,min_support,min_confidence,min_lift):
     display=rules[["antecedents","consequents","support","confidence","lift"]].head(20).copy()
     display["antecedents"]=display["antecedents"].apply(lambda x:", ".join(list(x)))
     display["consequents"]=display["consequents"].apply(lambda x:", ".join(list(x)))
-    st.dataframe(display,width='stretch')
+    st.dataframe(_sanitize_df(display),width='stretch')
     if not rules.empty:
         fig,ax=_dark_fig(7,4)
         sc=ax.scatter(rules["support"],rules["confidence"],c=rules["lift"],cmap="plasma",alpha=.8,s=60)
@@ -883,7 +887,7 @@ def render_eda_section(df):
                 stats=", ".join([str(v) for v in df[col].value_counts().head(3).index.tolist()])
             profile.append({"Column":col,"Type":str(df[col].dtype),"Missing":miss,"Missing%":miss_p,
                             "Unique":uniq,"Stats / Top Values":stats,"Sample":sample[:40]})
-        st.dataframe(pd.DataFrame(profile),width='stretch',height=min(600,40*len(df.columns)+50))
+        st.dataframe(_sanitize_df(pd.DataFrame(profile)),width='stretch',height=min(600,40*len(df.columns)+50))
 
     with tab_dist:
         if not num_cols: st.info("No numeric columns for distribution charts.")
@@ -945,7 +949,7 @@ def render_eda_section(df):
                                        "Correlation":f"{val:.3f}","Strength":"🔴 Strong (≥0.9)" if abs(val)>=.9 else "🟡 Moderate-Strong"})
             if strong:
                 st.markdown("**⚡ Highly correlated pairs (|r| ≥ 0.75):**")
-                st.dataframe(pd.DataFrame(strong),width='stretch')
+                st.dataframe(_sanitize_df(pd.DataFrame(strong)),width='stretch')
 
     with tab_miss:
         miss=df.isnull().sum(); miss=miss[miss>0].sort_values(ascending=False)
@@ -1138,7 +1142,7 @@ def render_algo_advisor(df):
         last_col=df.columns[-1]
         if df[last_col].nunique()<=10:
             vc=df[last_col].value_counts(normalize=True)
-            auto_hint=f" (Cột cuối '{last_col}': {', '.join(f'{v:.0%} {k}' for k,v in vc.items()[:3])})"
+            auto_hint=f" (Cột cuối '{last_col}': {', '.join(f'{v:.0%} {k}' for k,v in list(vc.items())[:3])})"
         else: auto_hint=""
         st.markdown(f'<div class="quiz-card"><div class="quiz-q">3️⃣  Phân phối các class trong dữ liệu như thế nào?{auto_hint}</div>'
                     '<div class="quiz-hint">Ví dụ: 95% "No Churn" và 5% "Churn" → mất cân bằng nghiêm trọng</div>',
@@ -1662,15 +1666,15 @@ for tab,(sname,sdf) in zip(file_tabs,all_loaded.items()):
     with tab:
         st.caption(f"{disp.shape[0]:,} rows × {disp.shape[1]} cols"+(" · ✅ Cleaned" if _s else " · Original"))
         t1,t2,t3=st.tabs(["Table","Statistics","Column Types"])
-        with t1: st.dataframe(disp.head(50),width='stretch')
-        with t2: st.dataframe(disp.describe(include="all"),width='stretch')
+        with t1: st.dataframe(_sanitize_df(disp.head(50)),width='stretch')
+        with t2: st.dataframe(_sanitize_df(disp.describe(include="all")),width='stretch')
         with t3:
             dt=disp.dtypes.reset_index(); dt.columns=["Column","Type"]
             dt["Nulls"]=disp.isnull().sum().values
             dt["Null%"]=(disp.isnull().mean()*100).round(1).values
             dt["Unique"]=disp.nunique().values
             dt["Sample"]=[str(disp[c].dropna().iloc[0]) if disp[c].dropna().shape[0]>0 else "" for c in disp.columns]
-            st.dataframe(dt,width='stretch')
+            st.dataframe(_sanitize_df(dt),width='stretch')
 
 if ws==1:
     st.markdown("<br>",unsafe_allow_html=True)
@@ -1777,7 +1781,7 @@ if ws>=2:
             for col,vm in st.session_state["enc_mapping"][active_name].items():
                 st.markdown(f"**`{col}`**")
                 mdf=pd.DataFrame(list(vm.items()),columns=["Original","Encoded"]).sort_values("Encoded")
-                st.dataframe(mdf,width='stretch',height=min(200,35*len(mdf)+38))
+                st.dataframe(_sanitize_df(mdf),width='stretch',height=min(200,35*len(mdf)+38))
 
     if log:
         st.markdown("---"); sec_hdr("📋","Change Log","green")
@@ -1787,11 +1791,11 @@ if ws>=2:
         with ca:
             st.markdown('<div class="diff-label dl-red">📌 Before</div>',unsafe_allow_html=True)
             st.markdown(f'<div class="diff-before"><div style="font-size:.79rem;color:#d1d5db">📏 {prep_raw.shape[0]:,}×{prep_raw.shape[1]} &nbsp;|&nbsp; ❓ {prep_raw.isnull().sum().sum():,} missing &nbsp;|&nbsp; 📋 {prep_raw.duplicated().sum():,} dups</div></div>',unsafe_allow_html=True)
-            st.dataframe(prep_raw.head(5),width='stretch',height=165)
+            st.dataframe(_sanitize_df(prep_raw.head(5)),width='stretch',height=165)
         with cb:
             st.markdown('<div class="diff-label dl-green">✅ After</div>',unsafe_allow_html=True)
             st.markdown(f'<div class="diff-after"><div style="font-size:.79rem;color:#d1d5db">📏 {cur_df2.shape[0]:,}×{cur_df2.shape[1]} &nbsp;|&nbsp; ❓ {cur_df2.isnull().sum().sum():,} missing &nbsp;|&nbsp; 📋 {cur_df2.duplicated().sum():,} dups</div></div>',unsafe_allow_html=True)
-            st.dataframe(cur_df2.head(5),width='stretch',height=165)
+            st.dataframe(_sanitize_df(cur_df2.head(5)),width='stretch',height=165)
         st.download_button("⬇️ Download Cleaned CSV",cur_df2.to_csv(index=False).encode(),
             file_name=f"cleaned_{prep_target[:25].replace(' ','_')}.csv",mime="text/csv")
         cu,cr=st.columns(2)
