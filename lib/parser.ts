@@ -148,7 +148,42 @@ async function parseExcel(file: File, options: ParseOptions = {}): Promise<Parse
                     };
                 }
 
-                const activeSheet = sheetNames[0];
+                // Smart sheet selection: skip description/metadata sheets, prefer data sheets
+                const SKIP_SHEET_NAMES = new Set([
+                    'description', 'instructions', 'notes', 'readme', 'info',
+                    'about', 'legend', 'glossary', 'guide', 'help', 'overview'
+                ]);
+                const PREFERRED_SHEET_NAMES = new Set([
+                    'data', 'sheet1', 'serving data', 'dataset', 'raw data',
+                    'rawdata', 'input', 'main', 'records'
+                ]);
+
+                function pickBestSheet(names: string[], sheetMap: any): string {
+                    // 1. Prefer a sheet in PREFERRED list (first match wins)
+                    for (const name of names) {
+                        if (PREFERRED_SHEET_NAMES.has(name.toLowerCase())) return name;
+                    }
+                    // 2. Skip sheets in SKIP list, pick first non-skipped sheet that has data
+                    for (const name of names) {
+                        if (!SKIP_SHEET_NAMES.has(name.toLowerCase())) {
+                            const s = sheetMap[name];
+                            if (s && s.totalCols > 1) return name;
+                        }
+                    }
+                    // 3. Fallback: pick sheet with most columns among non-skipped
+                    let best = names[0];
+                    let bestCols = 0;
+                    for (const name of names) {
+                        const s = sheetMap[name];
+                        if (s && s.totalCols > bestCols) {
+                            bestCols = s.totalCols;
+                            best = name;
+                        }
+                    }
+                    return best;
+                }
+
+                const activeSheet = pickBestSheet(sheetNames, sheets);
 
                 const parsedData: ParsedData = {
                     fileName: file.name,

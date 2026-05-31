@@ -186,6 +186,16 @@ summary{color:#9ca3af!important;}
 .fb-C{background:linear-gradient(90deg,#d97706,#fbbf24);}
 .fb-D{background:linear-gradient(90deg,#dc2626,#f87171);}
 .fitness-advice{font-size:.75rem;color:#9ca3af;line-height:1.55;}
+
+/* Thinking animation */
+@keyframes thinking-blink {
+  0%,100%{opacity:.2} 33%{opacity:1} 66%{opacity:.5}
+}
+.thinking-dots {
+  display:inline-block;
+  letter-spacing:2px;
+  animation: thinking-blink 1.4s infinite;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -223,7 +233,8 @@ from scipy.cluster.hierarchy import dendrogram, linkage
 # CONSTANTS
 # ═══════════════════════════════════════════════════════════════════════════════
 _DEFAULT_GEMINI_KEY = ""
-_GEMINI_CANDIDATES  = ["gemini-2.5-flash","gemini-2.0-flash","gemini-2.0-flash-lite"]
+_GEMINI_CANDIDATES  = ["gemini-2.5-flash","gemini-2.0-flash","gemini-1.5-flash","gemini-1.5-pro"]
+_GEMINI_BASE_URL    = "https://generativelanguage.googleapis.com/v1beta/models"
 _OPENROUTER_URL     = "https://openrouter.ai/api/v1/chat/completions"
 _OPENROUTER_MODELS  = ["openrouter/auto","google/gemma-3-27b-it:free",
     "meta-llama/llama-3.3-70b-instruct:free","deepseek/deepseek-r1:free","qwen/qwq-32b:free"]
@@ -276,25 +287,100 @@ def _df_to_json(df):
 def _json_to_df(s):
     return pd.read_json(io.StringIO(s),orient="split")
 
-def load_file(uploaded):
-    name=uploaded.name; sheets={}
+def _sanitize_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Chuyển tất cả dtype không tương thích về str/float để tránh lỗi PyArrow."""
+    df = df.copy()
+    # Tên cột phải là string
+    df.columns = [str(c) for c in df.columns]
+    for col in df.columns:
+        dtype = df[col].dtype
+        try:
+            # Extension types (StringDtype, BooleanDtype, Int64Dtype...) → về numpy gốc
+            if pd.api.types.is_extension_array_dtype(dtype):
+                df[col] = df[col].astype(object)
+                dtype = df[col].dtype
+
+            # Object column có giá trị hỗn hợp → convert toàn bộ về string
+            if dtype == object:
+                # Kiểm tra xem có giá trị không phải str không
+                sample = df[col].dropna().head(50)
+                if not all(isinstance(v, str) for v in sample):
+                    df[col] = df[col].astype(str).replace("nan", "")
+            # numpy Float64 / float không chuẩn
+            elif "float" in str(dtype).lower() and dtype != np.float64:
+                df[col] = df[col].astype(np.float64)
+        except Exception:
+            # Cuối cùng: ép về string cho an toàn tuyệt đối
+            try:
+                df[col] = df[col].astype(str).replace("nan", "")
+            except Exception:
+                df[col] = ""
+    return df
+
+def _pick_best_sheet(sheet_names):
+    """Chọn sheet tốt nhất: ưu tiên 'Data', bỏ qua 'Description'."""
+    skip = {"description","instructions","notes","readme","info","about","legend"}
+    preferred = {"data","sheet1","serving data","dataset","raw data","input","main","records"}
+    for s in sheet_names:
+        if s.lower() in preferred: return s
+    for s in sheet_names:
+        if s.lower() not in skip: return s
+    return sheet_names[0]
+
+def load_sheet(raw_bytes, sheet_name, engine_xl, header_row=0):
+    """Đọc 1 sheet cụ thể từ bytes, trả về DataFrame đã sanitize."""
+    df = pd.read_excel(io.BytesIO(raw_bytes), sheet_name=sheet_name,
+                       header=header_row, engine=engine_xl)
+    return _sanitize_df(df)
+
+def load_file(uploaded, header_row: int = 0, sheet_name: str = None):
+    """
+    Đọc file upload — chỉ load 1 sheet (sheet được chọn hoặc sheet tốt nhất).
+    Trả về: (key, df, sheet_names_list)  — sheet_names_list chỉ có với Excel
+    """
+    name = uploaded.name
+    result = {}          # {display_key: df}
+    all_sheet_names = [] # danh sách sheet có trong file (Excel only)
     try:
-        if name.endswith(".csv"):
-            sheets[name]=pd.read_csv(uploaded)
-        elif name.endswith((".xlsx",".xls")):
-            xf=pd.ExcelFile(uploaded)
-            for s in xf.sheet_names:
-                df=pd.read_excel(xf,sheet_name=s)
-                if not df.empty: sheets[f"{name}::{s}"]=df
+        if name.endswith((".csv", ".txt")):
+            sep = "," if name.endswith(".csv") else None
+            uploaded.seek(0)
+            df = pd.read_csv(uploaded, sep=sep, header=header_row,
+                             engine="python" if name.endswith(".txt") else "c")
+            result[name] = _sanitize_df(df)
+
+        elif name.endswith((".xlsx", ".xls", ".xlsm")):
+            uploaded.seek(0)
+            raw_bytes = uploaded.read()
+            engine_xl = "xlrd" if name.endswith(".xls") else "openpyxl"
+            xf = pd.ExcelFile(io.BytesIO(raw_bytes), engine=engine_xl)
+            all_sheet_names = xf.sheet_names
+
+            # Chọn sheet: dùng sheet_name nếu có, nếu không thì tự chọn tốt nhất
+            chosen = sheet_name if (sheet_name and sheet_name in all_sheet_names) \
+                     else _pick_best_sheet(all_sheet_names)
+
+            df = load_sheet(raw_bytes, chosen, engine_xl, header_row)
+            key = f"{name}::{chosen}"
+            result[key] = df
+
+            # Lưu raw_bytes + engine vào session_state để sau có thể đổi sheet
+            st.session_state.setdefault("_file_cache", {})[name] = {
+                "raw_bytes": raw_bytes, "engine": engine_xl,
+                "sheet_names": all_sheet_names, "current_sheet": chosen
+            }
+
         elif name.endswith(".json"):
-            sheets[name]=pd.read_json(uploaded)
-        elif name.endswith(".txt"):
-            sheets[name]=pd.read_csv(uploaded,sep=None,engine="python")
+            uploaded.seek(0)
+            result[name] = _sanitize_df(pd.read_json(uploaded))
+
         else:
-            sheets[name]=pd.read_csv(uploaded)
+            uploaded.seek(0)
+            result[name] = _sanitize_df(pd.read_csv(uploaded, sep=None, engine="python"))
+
     except Exception as e:
-        st.error(f"Error loading {name}: {e}")
-    return sheets
+        st.error(f"❌ Lỗi đọc {name}: {e}")
+    return result
 
 def df_summary(df,name=""):
     lines=[f"File: {name}" if name else ""]
@@ -311,7 +397,22 @@ def encode_df(df):
         df[col]=le.fit_transform(df[col].astype(str))
     return df
 
-def fig_to_st(fig): st.pyplot(fig); plt.close(fig)
+def _fig_to_png(fig):
+    """Chuyển matplotlib figure → PNG bytes để lưu vào session_state."""
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", bbox_inches="tight",
+                facecolor=fig.get_facecolor(), dpi=120)
+    buf.seek(0)
+    return buf.read()
+
+def fig_to_st(fig, save_key=None):
+    """Render figure lên Streamlit và optionally lưu bytes vào session_state."""
+    if save_key:
+        st.session_state.setdefault("_run_figures", {}).setdefault(save_key, []).append(
+            _fig_to_png(fig)
+        )
+    st.pyplot(fig)
+    plt.close(fig)
 
 def _clean_ai(text):
     t=_re.sub(r"\*{1,3}(.*?)\*{1,3}",r"\1",text)
@@ -357,19 +458,131 @@ def _call_openrouter(prompt,or_key):
         except Exception: continue
     return ""
 
+def _call_gemini_rest(prompt_text, api_key, model="gemini-2.5-flash"):
+    """Gọi Gemini REST API trực tiếp — không phụ thuộc version thư viện."""
+    url = f"{_GEMINI_BASE_URL}/{model}:generateContent"
+    payload = {
+        "contents": [{"role": "user", "parts": [{"text": prompt_text}]}],
+        "generationConfig": {"temperature": 0.3, "maxOutputTokens": 8192}
+    }
+    resp = _requests.post(url,
+        headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
+        json=payload, timeout=60)
+    if resp.status_code == 401:
+        raise ValueError(f"API Key không hợp lệ (401). Kiểm tra lại key trong sidebar.")
+    if resp.status_code == 429:
+        raise ValueError(f"Rate limit (429). Chờ 60 giây rồi thử lại.")
+    if resp.status_code == 404:
+        raise ValueError(f"Model '{model}' không tồn tại (404).")
+    resp.raise_for_status()
+    data = resp.json()
+    return data["candidates"][0]["content"]["parts"][0]["text"]
+
 def ask_ai(prompt):
-    gemini_key,or_key=_get_keys()
-    for model_name in _GEMINI_CANDIDATES:
-        try:
-            genai.configure(api_key=gemini_key)
-            mdl=genai.GenerativeModel(model_name)
-            resp=mdl.generate_content(prompt)
-            return resp.text
-        except Exception: continue
+    gemini_key, or_key = _get_keys()
+    if not gemini_key and not or_key:
+        return "⚠️ Chưa nhập API Key. Vui lòng nhập Gemini key trong sidebar."
+    last_err = None
+    if gemini_key:
+        for model_name in _GEMINI_CANDIDATES:
+            try:
+                return _call_gemini_rest(prompt, gemini_key, model_name)
+            except ValueError as e:
+                # Lỗi xác định (key sai, rate limit) — dừng luôn
+                return f"❌ {e}"
+            except Exception as e:
+                last_err = e
+                continue  # thử model tiếp
     if or_key:
-        result=_call_openrouter(prompt,or_key)
-        if result and not result.startswith("__OR_FAIL__"): return result
-    return "⚠️ No AI key set or all models failed. Paste a Gemini or OpenRouter key in the sidebar."
+        result = _call_openrouter(prompt, or_key)
+        if result and not result.startswith("__OR_FAIL__"):
+            return result
+    err_str = str(last_err) if last_err else "Không tìm thấy lỗi cụ thể"
+    return f"❌ Tất cả model đều thất bại.\nLỗi cuối: {err_str}"
+
+def ask_ai_stream(messages_for_api):
+    """Gọi Gemini SSE streaming — yield từng chunk text."""
+    gemini_key, or_key = _get_keys()
+    if not gemini_key and not or_key:
+        raise ValueError("Chưa nhập API Key. Nhập Gemini key trong sidebar.")
+
+    last_error = None
+
+    if gemini_key:
+        for model_name in _GEMINI_CANDIDATES:
+            try:
+                url = f"{_GEMINI_BASE_URL}/{model_name}:streamGenerateContent?alt=sse"
+                payload = {
+                    "contents": messages_for_api,
+                    "generationConfig": {"temperature": 0.3, "maxOutputTokens": 8192}
+                }
+                resp = _requests.post(url,
+                    headers={"Content-Type":"application/json","x-goog-api-key": gemini_key},
+                    json=payload, stream=True, timeout=120)
+                if resp.status_code == 401:
+                    raise ValueError("API Key không hợp lệ (401). Kiểm tra lại key trong sidebar.")
+                if resp.status_code == 429:
+                    raise ValueError("Rate limit (429). Chờ 60 giây rồi thử lại.")
+                if resp.status_code == 404:
+                    last_error = Exception(f"Model {model_name} không tồn tại")
+                    continue
+                resp.raise_for_status()
+                got_text = False
+                buf = ""
+                for raw in resp.iter_lines(decode_unicode=True):
+                    if not raw or not raw.startswith("data:"):
+                        continue
+                    data_str = raw[5:].strip()
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data_str)
+                        text = chunk["candidates"][0]["content"]["parts"][0]["text"]
+                        if text:
+                            got_text = True
+                            yield text
+                    except Exception:
+                        continue
+                if got_text:
+                    return
+            except ValueError:
+                raise  # key/rate limit — raise ngay
+            except Exception as e:
+                last_error = e
+                continue
+
+    # Fallback OpenRouter (không stream)
+    if or_key:
+        try:
+            history_text = "\n".join(
+                f"{m['role'].upper()}: {m['parts'][0]['text']}" for m in messages_for_api
+            )
+            result = _call_openrouter(history_text, or_key)
+            if result and not result.startswith("__OR_FAIL__"):
+                yield result
+                return
+        except Exception as e:
+            last_error = e
+
+    raise RuntimeError(
+        f"Tất cả model thất bại. Lỗi: {last_error}" if last_error
+        else "Không kết nối được AI. Kiểm tra API key và mạng."
+    )
+
+def _build_data_context():
+    """Tạo context tóm tắt dữ liệu hiện tại để đưa vào system prompt chat."""
+    sheets=st.session_state.get("sheets",{})
+    if not sheets: return "No data uploaded yet."
+    parts=[]
+    for name,df in sheets.items():
+        stack=st.session_state["prep_transforms"].get(name,[])
+        udf=_json_to_df(stack[-1][1]) if stack else df
+        parts.append(df_summary(udf,name))
+    results=st.session_state.get("run_results",[])
+    results_txt=""
+    if results:
+        results_txt="\n\nML RESULTS AVAILABLE:\n"+pd.DataFrame(results).to_string(index=False)
+    return "\n\n".join(parts)+results_txt
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # DATA PREP
@@ -511,7 +724,7 @@ def run_classification(method,df,target,features,test_size,balance):
                     linewidths=.5,linecolor='#374151',annot_kws={"color":"#fff","size":12})
         ax.set_title("Confusion Matrix",color='#e5e7eb')
         ax.set_xlabel("Predicted",color='#9ca3af'); ax.set_ylabel("Actual",color='#9ca3af')
-        fig_to_st(fig)
+        fig_to_st(fig, save_key=method)
         st.markdown('<div class="chart-cap">Large diagonal = correct predictions. Off-diagonal = errors.</div>',unsafe_allow_html=True)
     with col_b:
         if is_bin and hasattr(mdl,"predict_proba"):
@@ -523,7 +736,8 @@ def run_classification(method,df,target,features,test_size,balance):
                 ax2.plot([0,1],[0,1],'r--',lw=1,label="Random")
                 ax2.set_xlabel("FPR",color='#9ca3af'); ax2.set_ylabel("TPR",color='#9ca3af')
                 ax2.set_title("ROC Curve",color='#e5e7eb')
-                ax2.legend(facecolor='#111827',labelcolor='#9ca3af'); fig_to_st(fig2)
+                ax2.legend(facecolor='#111827',labelcolor='#9ca3af')
+                fig_to_st(fig2, save_key=method)
                 st.markdown('<div class="chart-cap">Curve near top-left = strong model. Near diagonal = weak.</div>',unsafe_allow_html=True)
             except Exception: pass
     if hasattr(mdl,"feature_importances_") or hasattr(mdl,"coef_"):
@@ -535,7 +749,7 @@ def run_classification(method,df,target,features,test_size,balance):
         fig3,ax3=_dark_fig(7,max(3,min(12,len(fi))*.35))
         fi.head(15).plot(kind='barh',ax=ax3,color='#3b82f6')
         ax3.set_title("Top 15 Features",color='#e5e7eb'); ax3.invert_yaxis()
-        plt.tight_layout(); fig_to_st(fig3)
+        plt.tight_layout(); fig_to_st(fig3, save_key=method)
     if method=="Classification Trees":
         with st.expander("🌿 Decision Tree Rules",expanded=False):
             st.code(export_text(mdl,feature_names=features,max_depth=4),language="")
@@ -562,7 +776,7 @@ def run_regression(method,df,target,features,test_size):
         mn,mx=min(y_te.min(),y_pred.min()),max(y_te.max(),y_pred.max())
         ax.plot([mn,mx],[mn,mx],'r--',lw=1.5)
         ax.set_xlabel("Actual",color='#9ca3af'); ax.set_ylabel("Predicted",color='#9ca3af')
-        ax.set_title("Actual vs Predicted",color='#e5e7eb'); fig_to_st(fig)
+        ax.set_title("Actual vs Predicted",color='#e5e7eb'); fig_to_st(fig, save_key=method)
     with col_b:
         st.markdown('<div class="chart-title">Residual Plot</div>',unsafe_allow_html=True)
         fig2,ax2=_dark_fig(5,4)
@@ -632,7 +846,7 @@ def run_association(df,min_support,min_confidence,min_lift):
     display=rules[["antecedents","consequents","support","confidence","lift"]].head(20).copy()
     display["antecedents"]=display["antecedents"].apply(lambda x:", ".join(list(x)))
     display["consequents"]=display["consequents"].apply(lambda x:", ".join(list(x)))
-    st.dataframe(display,use_container_width=True)
+    st.dataframe(display,width='stretch')
     if not rules.empty:
         fig,ax=_dark_fig(7,4)
         sc=ax.scatter(rules["support"],rules["confidence"],c=rules["lift"],cmap="plasma",alpha=.8,s=60)
@@ -669,7 +883,7 @@ def render_eda_section(df):
                 stats=", ".join([str(v) for v in df[col].value_counts().head(3).index.tolist()])
             profile.append({"Column":col,"Type":str(df[col].dtype),"Missing":miss,"Missing%":miss_p,
                             "Unique":uniq,"Stats / Top Values":stats,"Sample":sample[:40]})
-        st.dataframe(pd.DataFrame(profile),use_container_width=True,height=min(600,40*len(df.columns)+50))
+        st.dataframe(pd.DataFrame(profile),width='stretch',height=min(600,40*len(df.columns)+50))
 
     with tab_dist:
         if not num_cols: st.info("No numeric columns for distribution charts.")
@@ -731,7 +945,7 @@ def render_eda_section(df):
                                        "Correlation":f"{val:.3f}","Strength":"🔴 Strong (≥0.9)" if abs(val)>=.9 else "🟡 Moderate-Strong"})
             if strong:
                 st.markdown("**⚡ Highly correlated pairs (|r| ≥ 0.75):**")
-                st.dataframe(pd.DataFrame(strong),use_container_width=True)
+                st.dataframe(pd.DataFrame(strong),width='stretch')
 
     with tab_miss:
         miss=df.isnull().sum(); miss=miss[miss>0].sort_values(ascending=False)
@@ -1133,6 +1347,7 @@ DEFAULTS={
     "prep_transforms":{},"prep_log":{},"enc_mapping":{},"user_goal":"",
     "selected_methods":[],"run_results":[],"run_exports":{},"comparison_ai":"",
     "gemini_key":"","openrouter_key":"","ai_vn":"","rec_applied":False,
+    "chat_messages":[],"_run_figures":{},
 }
 for k,v in DEFAULTS.items():
     if k not in st.session_state: st.session_state[k]=v
@@ -1191,36 +1406,80 @@ with st.sidebar:
         st.markdown(f'<div class="sb-step{ac}"><div class="sb-num {nc}">{sym}</div><div class="sb-txt {tc}">{s}</div></div>',unsafe_allow_html=True)
 
     st.markdown('<div style="border-top:1px solid #1f2937;padding-top:10px;margin-top:12px;font-size:.63rem;font-weight:700;letter-spacing:.1em;color:#374151;text-transform:uppercase;margin-bottom:7px">DATA UPLOAD</div>',unsafe_allow_html=True)
-    uploaded_files=st.file_uploader("Drop files here",type=["csv","xlsx","xls","json","txt"],
-        accept_multiple_files=True,label_visibility="collapsed")
+
+    # Header row selector
+    _header_row = st.number_input(
+        "Dòng header (0 = dòng đầu tiên)",
+        min_value=0, max_value=20, value=st.session_state.get("_header_row", 0), step=1,
+        key="_header_row_input",
+        help="Tăng số này nếu file có logo/tiêu đề phụ ở đầu. Nhấn 'Cập nhật header' sau khi thay đổi."
+    )
+    st.session_state["_header_row"] = int(_header_row)
+
+    uploaded_files = st.file_uploader("Drop files here", type=["csv","xlsx","xls","xlsm","json","txt"],
+        accept_multiple_files=True, label_visibility="collapsed")
     if uploaded_files:
         for uf in uploaded_files:
-            new=load_file(uf)
-            for k,v in new.items():
+            new = load_file(uf, header_row=int(_header_row))
+            for k, v in new.items():
                 if k not in st.session_state["sheets"]:
-                    st.session_state["sheets"][k]=v
+                    st.session_state["sheets"][k] = v
                     if st.session_state["active_sheet"] is None:
-                        st.session_state["active_sheet"]=k
+                        st.session_state["active_sheet"] = k
 
-    all_sheets=st.session_state.get("sheets",{})
+    all_sheets = st.session_state.get("sheets", {})
     if all_sheets:
-        keys=list(all_sheets.keys())
-        chosen=st.selectbox("Active sheet",keys,
-            index=keys.index(st.session_state["active_sheet"]) if st.session_state["active_sheet"] in keys else 0,
-            label_visibility="collapsed")
-        st.session_state["active_sheet"]=chosen
-        if len(all_sheets)>1:
-            with st.expander("🔗 Merge Files",expanded=False):
-                left_k=st.selectbox("Left file",keys,key="ml")
-                right_k=st.selectbox("Right file",[k for k in keys if k!=left_k],key="mr")
-                shared=list(set(all_sheets[left_k].columns)&set(all_sheets[right_k].columns)) if right_k else []
-                join_on=st.selectbox("Join on",shared or ["(no shared columns)"],key="mo")
-                join_type=st.selectbox("Join type",["inner","left","outer","right"],key="mt")
-                if shared and st.button("Merge →",key="dm"):
-                    merged=pd.merge(all_sheets[left_k],all_sheets[right_k],on=join_on,how=join_type)
-                    mk=f"merged_{left_k[:12]}+{right_k[:12]}"
-                    st.session_state["sheets"][mk]=merged; st.session_state["active_sheet"]=mk
-                    st.success(f"Merged → {mk} ({merged.shape[0]:,} rows)"); st.rerun()
+        keys = list(all_sheets.keys())
+
+        # ── Active sheet selector ──────────────────────────────────────────
+        cur_idx = keys.index(st.session_state["active_sheet"]) \
+                  if st.session_state["active_sheet"] in keys else 0
+        chosen = st.selectbox("Dataset đang chọn", keys, index=cur_idx,
+                              label_visibility="visible")
+        if chosen != st.session_state["active_sheet"]:
+            st.session_state["active_sheet"] = chosen
+            st.rerun()
+
+        # ── Sheet selector (chỉ hiện với Excel nhiều sheet) ───────────────
+        active_key = st.session_state["active_sheet"]
+        file_name = active_key.split("::")[0] if "::" in active_key else None
+        cache = st.session_state.get("_file_cache", {}).get(file_name)
+        if cache and len(cache["sheet_names"]) > 1:
+            cur_sheet = cache["current_sheet"]
+            sheet_idx = cache["sheet_names"].index(cur_sheet) \
+                        if cur_sheet in cache["sheet_names"] else 0
+            sel_sheet = st.selectbox(
+                "Sheet", cache["sheet_names"], index=sheet_idx,
+                label_visibility="visible"
+            )
+            if sel_sheet != cur_sheet:
+                # Reload sheet được chọn
+                try:
+                    new_df = load_sheet(cache["raw_bytes"], sel_sheet,
+                                        cache["engine"], int(_header_row))
+                    new_key = f"{file_name}::{sel_sheet}"
+                    st.session_state["sheets"].pop(active_key, None)
+                    st.session_state["sheets"][new_key] = new_df
+                    st.session_state["active_sheet"] = new_key
+                    cache["current_sheet"] = sel_sheet
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Lỗi đọc sheet: {e}")
+
+        if len(all_sheets) > 1:
+            with st.expander("🔗 Merge Files", expanded=False):
+                left_k = st.selectbox("Left file", keys, key="ml")
+                right_k = st.selectbox("Right file", [k for k in keys if k != left_k], key="mr")
+                shared = list(set(all_sheets[left_k].columns) & set(all_sheets[right_k].columns)) if right_k else []
+                join_on = st.selectbox("Join on", shared or ["(no shared columns)"], key="mo")
+                join_type = st.selectbox("Join type", ["inner","left","outer","right"], key="mt")
+                if shared and st.button("Merge →", key="dm"):
+                    merged = pd.merge(all_sheets[left_k], all_sheets[right_k], on=join_on, how=join_type)
+                    mk = f"merged_{left_k[:12]}+{right_k[:12]}"
+                    st.session_state["sheets"][mk] = merged
+                    st.session_state["active_sheet"] = mk
+                    st.success(f"Merged → {mk} ({merged.shape[0]:,} rows)")
+                    st.rerun()
 
     st.markdown('<div style="border-top:1px solid #1f2937;padding-top:10px;margin-top:12px;font-size:.63rem;font-weight:700;letter-spacing:.1em;color:#374151;text-transform:uppercase;margin-bottom:7px">AI KEYS</div>',unsafe_allow_html=True)
     st.text_input("Gemini key",type="password",key="gemini_key",placeholder="AIza…",label_visibility="collapsed")
@@ -1229,8 +1488,17 @@ with st.sidebar:
     st.caption("OpenRouter (openrouter.ai) — fallback")
     g_ok=bool(st.session_state.get("gemini_key","").strip())
     o_ok=bool(st.session_state.get("openrouter_key","").strip())
-    if g_ok or o_ok: st.success(f"AI ready: {'Gemini' if g_ok else 'OpenRouter'}")
-    else: st.markdown('<div style="font-size:.74rem;color:#4b5563;padding:4px 0">⚪ No key — ML runs fine; AI explanations disabled.</div>',unsafe_allow_html=True)
+    if g_ok or o_ok:
+        st.success(f"AI ready: {'Gemini' if g_ok else 'OpenRouter'}")
+        if st.button("🔑 Test kết nối AI", key="test_ai_key"):
+            with st.spinner("Đang kiểm tra..."):
+                test_result = ask_ai("Trả lời đúng 5 chữ: 'Kết nối thành công!'")
+            if "❌" in test_result or "⚠️" in test_result:
+                st.error(test_result)
+            else:
+                st.success(f"✅ {test_result[:80]}")
+    else:
+        st.markdown('<div style="font-size:.74rem;color:#4b5563;padding:4px 0">⚪ No key — ML runs fine; AI explanations disabled.</div>',unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # MAIN
@@ -1241,10 +1509,115 @@ st.markdown(
     '<div class="app-header">'
     '<div class="app-logo">🧬</div>'
     '<div><div class="app-title">DataMine AI</div>'
-    '<div class="app-sub">Upload · Prep · Profile · Predict</div></div>'
+    '<div class="app-sub">Upload · Prep · Profile · Predict · Chat</div></div>'
     '<div class="version-badge">v2.0</div></div>',
     unsafe_allow_html=True)
 
+# ── TOP-LEVEL NAVIGATION ────────────────────────────────────────────────────
+_app_nav=st.radio("Chế độ",["📊 Workflow","💬 AI Chat"],horizontal=True,
+                  label_visibility="collapsed",key="app_nav")
+
+if _app_nav=="💬 AI Chat":
+    g_ok_nav=bool(st.session_state.get("gemini_key","").strip())
+    o_ok_nav=bool(st.session_state.get("openrouter_key","").strip())
+
+    if not g_ok_nav and not o_ok_nav:
+        st.warning("⚠️ Vui lòng nhập **Gemini API Key** trong sidebar để bắt đầu chat.")
+        st.stop()
+
+    # ── Context badge ────────────────────────────────────────────────────────
+    _has_data = bool(st.session_state.get("sheets", {}))
+    _has_res  = bool(st.session_state.get("run_results", []))
+    _ctx_parts = []
+    if _has_data: _ctx_parts.append(f"📊 {len(st.session_state['sheets'])} file(s) đã upload")
+    if _has_res:  _ctx_parts.append(f"🤖 {len(st.session_state['run_results'])} kết quả model")
+    if _ctx_parts:
+        st.markdown(
+            f'<div style="background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);'
+            f'border-radius:8px;padding:8px 14px;font-size:.78rem;color:#6ee7b7;margin-bottom:12px">'
+            f'✅ AI đang biết: {" · ".join(_ctx_parts)}</div>', unsafe_allow_html=True)
+    else:
+        st.markdown(
+            '<div style="background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.2);'
+            'border-radius:8px;padding:8px 14px;font-size:.78rem;color:#a5b4fc;margin-bottom:12px">'
+            '💡 Chưa có data — có thể hỏi kiến thức data science tổng quát, '
+            'hoặc upload data ở tab Workflow rồi quay lại đây.</div>', unsafe_allow_html=True)
+
+    # ── Suggestion chips ─────────────────────────────────────────────────────
+    _SUGGESTIONS = [
+        ("🤖", "Giải thích sự khác nhau giữa Random Forest và Logistic Regression"),
+        ("📊", "Làm thế nào để xử lý dữ liệu bị mất (missing values)?"),
+        ("🎯", "Khi nào nên dùng K-Means, khi nào dùng Hierarchical Clustering?"),
+        ("⚠️", "Class imbalance là gì và cách xử lý?"),
+        ("📈", "Tóm tắt và phân tích dữ liệu tôi đã upload"),
+        ("🏆", "Model nào trong kết quả vừa chạy là tốt nhất và tại sao?"),
+    ]
+    sec_hdr("💬", "AI Chat", "purple", subtitle="Hỏi bất kỳ điều gì về dữ liệu hoặc data science")
+    st.markdown('<div style="font-size:.75rem;color:#6b7280;margin-bottom:8px">💡 Gợi ý:</div>', unsafe_allow_html=True)
+    _sc = st.columns(3)
+    for _i, (_icon, _txt) in enumerate(_SUGGESTIONS):
+        with _sc[_i % 3]:
+            if st.button(f"{_icon} {_txt[:40]}…" if len(_txt) > 40 else f"{_icon} {_txt}",
+                         key=f"sug_{_i}", use_container_width=True):
+                st.session_state["_chat_pending"] = _txt
+                st.rerun()
+
+    st.markdown("---")
+
+    # ── Input box ───────────────────────────────────────────────────────────
+    with st.form("chat_form", clear_on_submit=True):
+        _fc, _bc = st.columns([5, 1])
+        with _fc:
+            _user_q = st.text_input("Câu hỏi", placeholder="Nhập câu hỏi rồi nhấn Gửi…",
+                                    label_visibility="collapsed")
+        with _bc:
+            _submitted = st.form_submit_button("📨 Gửi", use_container_width=True)
+
+    # Xử lý câu hỏi từ suggestion hoặc form
+    _pending = st.session_state.pop("_chat_pending", None)
+    _question = _pending or (_user_q.strip() if _submitted and _user_q.strip() else None)
+
+    if _question:
+        st.session_state["chat_messages"].append({"role": "user", "content": _question})
+        _data_ctx = _build_data_context()
+        _sys_prompt = (
+            "Bạn là chuyên gia data science và data mining. "
+            "Trả lời bằng tiếng Việt, rõ ràng, có ví dụ cụ thể. "
+            "Nếu có dữ liệu, hãy tham chiếu cột/số liệu thực tế.\n\n"
+            + (f"DỮ LIỆU NGƯỜI DÙNG:\n{_data_ctx[:4000]}" if _has_data
+               else "Chưa có dữ liệu — trả lời kiến thức tổng quát.")
+        )
+        _full_prompt = _sys_prompt + "\n\n---\nCÂU HỎI: " + _question
+        with st.spinner("⏳ AI đang suy nghĩ..."):
+            _answer = ask_ai(_full_prompt)
+        st.session_state["chat_messages"].append({"role": "assistant", "content": _answer})
+        st.rerun()
+
+    # ── Lịch sử chat ────────────────────────────────────────────────────────
+    _history = st.session_state.get("chat_messages", [])
+    if not _history:
+        st.markdown(
+            '<div style="text-align:center;padding:40px 20px">'
+            '<div style="font-size:2.5rem">🤖</div>'
+            '<div style="color:#4b5563;font-size:.85rem;margin-top:8px">'
+            'Chưa có câu hỏi nào. Chọn gợi ý hoặc nhập câu hỏi ở trên.</div></div>',
+            unsafe_allow_html=True)
+    else:
+        for _msg in reversed(_history):  # mới nhất ở trên
+            if _msg["role"] == "user":
+                st.markdown(
+                    f'<div style="background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.25);'
+                    f'border-radius:10px;padding:10px 14px;margin:6px 0;font-size:.88rem">'
+                    f'🧑 <b>Bạn:</b> {_msg["content"]}</div>', unsafe_allow_html=True)
+            else:
+                render_ai_box(_msg["content"], "🤖 AI")
+        if st.button("🗑️ Xoá lịch sử", key="clr_chat"):
+            st.session_state["chat_messages"] = []
+            st.rerun()
+
+    st.stop()
+
+# ── WORKFLOW MODE ────────────────────────────────────────────────────────────
 render_stepper(ws)
 
 if not st.session_state["sheets"]:
@@ -1289,15 +1662,15 @@ for tab,(sname,sdf) in zip(file_tabs,all_loaded.items()):
     with tab:
         st.caption(f"{disp.shape[0]:,} rows × {disp.shape[1]} cols"+(" · ✅ Cleaned" if _s else " · Original"))
         t1,t2,t3=st.tabs(["Table","Statistics","Column Types"])
-        with t1: st.dataframe(disp.head(50),use_container_width=True)
-        with t2: st.dataframe(disp.describe(include="all"),use_container_width=True)
+        with t1: st.dataframe(disp.head(50),width='stretch')
+        with t2: st.dataframe(disp.describe(include="all"),width='stretch')
         with t3:
             dt=disp.dtypes.reset_index(); dt.columns=["Column","Type"]
             dt["Nulls"]=disp.isnull().sum().values
             dt["Null%"]=(disp.isnull().mean()*100).round(1).values
             dt["Unique"]=disp.nunique().values
             dt["Sample"]=[str(disp[c].dropna().iloc[0]) if disp[c].dropna().shape[0]>0 else "" for c in disp.columns]
-            st.dataframe(dt,use_container_width=True)
+            st.dataframe(dt,width='stretch')
 
 if ws==1:
     st.markdown("<br>",unsafe_allow_html=True)
@@ -1321,6 +1694,36 @@ if ws>=2:
     else:
         prep_target=active_name
     prep_raw=all_loaded_2.get(prep_target,raw_df)
+
+    # ── Cập nhật header row ──────────────────────────────────────────────────
+    _cur_header = st.session_state.get("_header_row", 0)
+    _file_name_prep = prep_target.split("::")[0] if "::" in prep_target else prep_target
+    _cache_prep = st.session_state.get("_file_cache", {}).get(_file_name_prep)
+    _ph_col, _ph_btn = st.columns([3, 1])
+    with _ph_col:
+        st.markdown(
+            f'<div style="font-size:.8rem;color:#6b7280;padding:6px 0">'
+            f'📌 Dòng header hiện tại: <b style="color:#f9fafb">{_cur_header}</b> '
+            f'— Đổi số ở sidebar rồi nhấn nút để cập nhật lại</div>',
+            unsafe_allow_html=True)
+    with _ph_btn:
+        if st.button("🔄 Cập nhật header", key="update_header"):
+            if _cache_prep:
+                # Excel — reload sheet hiện tại với header mới
+                _cur_sh = _cache_prep["current_sheet"]
+                try:
+                    _new_df = load_sheet(_cache_prep["raw_bytes"], _cur_sh,
+                                         _cache_prep["engine"], _cur_header)
+                    st.session_state["sheets"][prep_target] = _new_df
+                    # Reset prep transforms vì header thay đổi
+                    st.session_state["prep_transforms"].pop(prep_target, None)
+                    st.session_state["prep_log"].pop(prep_target, None)
+                    st.success(f"✅ Đã cập nhật header dòng {_cur_header} cho sheet '{_cur_sh}'")
+                    st.rerun()
+                except Exception as _he:
+                    st.error(f"Lỗi cập nhật header: {_he}")
+            else:
+                st.info("Tính năng này chỉ hỗ trợ file Excel. Với CSV, upload lại với dòng header mới.")
     if prep_target not in st.session_state["prep_log"]: st.session_state["prep_log"][prep_target]=[]
     if prep_target not in st.session_state["prep_transforms"]: st.session_state["prep_transforms"][prep_target]=[]
     stack=st.session_state["prep_transforms"][prep_target]; log=st.session_state["prep_log"][prep_target]
@@ -1374,7 +1777,7 @@ if ws>=2:
             for col,vm in st.session_state["enc_mapping"][active_name].items():
                 st.markdown(f"**`{col}`**")
                 mdf=pd.DataFrame(list(vm.items()),columns=["Original","Encoded"]).sort_values("Encoded")
-                st.dataframe(mdf,use_container_width=True,height=min(200,35*len(mdf)+38))
+                st.dataframe(mdf,width='stretch',height=min(200,35*len(mdf)+38))
 
     if log:
         st.markdown("---"); sec_hdr("📋","Change Log","green")
@@ -1384,11 +1787,11 @@ if ws>=2:
         with ca:
             st.markdown('<div class="diff-label dl-red">📌 Before</div>',unsafe_allow_html=True)
             st.markdown(f'<div class="diff-before"><div style="font-size:.79rem;color:#d1d5db">📏 {prep_raw.shape[0]:,}×{prep_raw.shape[1]} &nbsp;|&nbsp; ❓ {prep_raw.isnull().sum().sum():,} missing &nbsp;|&nbsp; 📋 {prep_raw.duplicated().sum():,} dups</div></div>',unsafe_allow_html=True)
-            st.dataframe(prep_raw.head(5),use_container_width=True,height=165)
+            st.dataframe(prep_raw.head(5),width='stretch',height=165)
         with cb:
             st.markdown('<div class="diff-label dl-green">✅ After</div>',unsafe_allow_html=True)
             st.markdown(f'<div class="diff-after"><div style="font-size:.79rem;color:#d1d5db">📏 {cur_df2.shape[0]:,}×{cur_df2.shape[1]} &nbsp;|&nbsp; ❓ {cur_df2.isnull().sum().sum():,} missing &nbsp;|&nbsp; 📋 {cur_df2.duplicated().sum():,} dups</div></div>',unsafe_allow_html=True)
-            st.dataframe(cur_df2.head(5),use_container_width=True,height=165)
+            st.dataframe(cur_df2.head(5),width='stretch',height=165)
         st.download_button("⬇️ Download Cleaned CSV",cur_df2.to_csv(index=False).encode(),
             file_name=f"cleaned_{prep_target[:25].replace(' ','_')}.csv",mime="text/csv")
         cu,cr=st.columns(2)
@@ -1492,6 +1895,7 @@ if ws>=3:
         if not sel: st.info("👆 Select at least one method above to run analysis.")
         elif st.button("🚀 Run Selected Methods",type="primary"):
             st.session_state["run_results"]=[]; st.session_state["run_exports"]={}
+            st.session_state["_run_figures"]={}
             for method in sel:
                 group=METHODS[method]["group"]
                 sec_hdr("▶","Running: "+method,"purple")
@@ -1549,6 +1953,7 @@ if ws>=4:
     sec_hdr("🧠","Step 4 — Advise & Predict","purple",subtitle="AI Blueprint · Results · Export")
 
     adv_tab1,adv_tab2,adv_tab3=st.tabs(["🤖 AI Blueprint","📊 Results & Analysis","⬇️ Export"])
+    adv_tab4=None  # removed — dùng tab AI Chat ở top navigation
 
     with adv_tab1:
         sec_hdr("🎯","Describe Your Goal","blue",subtitle="AI will advise the best approach")
@@ -1566,6 +1971,7 @@ if ws>=4:
                 if st.button("🔄 Re-run"): st.session_state["ai_blueprint"]=""; st.rerun()
 
         if analyse_clicked and user_goal.strip():
+
             all_l4=st.session_state.get("sheets",{})
             summary_parts=[]
             for sn,sdf in all_l4.items():
@@ -1610,7 +2016,7 @@ if ws>=4:
             cmp_df=pd.DataFrame(results)
             col_order=["Sheet","Method","Accuracy","Precision","Recall","F1-Score","AUC","R²","RMSE","K","Silhouette","Rules found","Train rows","Test rows","Rows"]
             col_order=[c for c in col_order if c in cmp_df.columns]
-            cmp_df=cmp_df[col_order]; st.dataframe(cmp_df,use_container_width=True)
+            cmp_df=cmp_df[col_order]; st.dataframe(_sanitize_df(cmp_df),width='stretch')
             if "F1-Score" in cmp_df.columns:
                 try:
                     best=cmp_df.loc[cmp_df["F1-Score"].astype(float).idxmax()]
@@ -1622,8 +2028,24 @@ if ws>=4:
                     st.success(f"🏆 Best regression: **{best.get('Method','')}** — R² = {best['R²']}")
                 except Exception: pass
 
-            # Fitness report
             render_fitness_report(results, df_active, st.session_state.get("user_goal",""))
+
+            # ── Hiển thị lại các biểu đồ đã lưu khi chạy model ─────────────
+            saved_figs = st.session_state.get("_run_figures", {})
+            if saved_figs:
+                st.markdown("---")
+                sec_hdr("📊","Biểu đồ kết quả model","blue")
+                for method_name, fig_bytes_list in saved_figs.items():
+                    st.markdown(
+                        f'<div style="font-size:.85rem;font-weight:700;color:#60a5fa;'
+                        f'margin:14px 0 8px;border-left:3px solid #3b82f6;padding-left:10px">'
+                        f'▶ {method_name}</div>', unsafe_allow_html=True)
+                    # Chia đều các figure vào cột (tối đa 3/hàng)
+                    n = len(fig_bytes_list)
+                    cols = st.columns(min(n, 3))
+                    for i, img_bytes in enumerate(fig_bytes_list):
+                        with cols[i % min(n, 3)]:
+                            st.image(img_bytes, use_container_width=True)
 
             st.markdown("---"); sec_hdr("🤖","AI Analysis of Results","purple")
             if st.button("🔎 Generate AI Explanation",type="primary",key="gaie"):
@@ -1645,8 +2067,8 @@ if ws>=4:
                 with c_vn2:
                     if st.button("🇻🇳 Dịch kết quả",key="trr"):
                         with st.spinner("Đang dịch…"):
-                            vn2=ask_ai(f"Translate to natural Vietnamese. No markdown.\n\n{st.session_state['comparison_ai'][:3000]}")
-                        st.session_state["ai_vn"]=vn2
+                            txt2=st.session_state["comparison_ai"][:3000]
+                            vn2=ask_ai("Translate to natural Vietnamese. No markdown. "+txt2)
                 if st.session_state.get("ai_vn"): render_ai_box(st.session_state["ai_vn"],"🇻🇳 Giải thích Tiếng Việt")
 
     with adv_tab3:
@@ -1670,10 +2092,11 @@ if ws>=4:
                 file_name=f"DataMineAI_{active_name[:20].replace(' ','_')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
+
     st.markdown("---")
     if st.button("🔄 Start New Analysis (reset all)"):
         for key2 in ["wizard_step","ai_blueprint","prep_transforms","prep_log","enc_mapping",
-                     "user_goal","selected_methods","run_results","run_exports","comparison_ai","ai_vn"]:
+                     "user_goal","selected_methods","run_results","run_exports","comparison_ai","ai_vn","chat_messages","_run_figures"]:
             if isinstance(DEFAULTS.get(key2),dict): st.session_state[key2]={}
             elif isinstance(DEFAULTS.get(key2),list): st.session_state[key2]=[]
             else: st.session_state[key2]=DEFAULTS.get(key2,"")
