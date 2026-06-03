@@ -222,7 +222,36 @@ from sklearn.metrics import (accuracy_score, classification_report,
                              f1_score, roc_auc_score, roc_curve)
 from mlxtend.frequent_patterns import apriori, association_rules
 from mlxtend.preprocessing import TransactionEncoder
-from imblearn.over_sampling import RandomOverSampler, SMOTE
+# imbalanced-learn không tương thích Python 3.14 — dùng implementation tự viết
+try:
+    from imblearn.over_sampling import RandomOverSampler, SMOTE
+    _IMBLEARN_OK = True
+except Exception:
+    _IMBLEARN_OK = False
+
+    class RandomOverSampler:
+        """Fallback: random oversampling bằng numpy."""
+        def __init__(self, random_state=42):
+            self.random_state = random_state
+        def fit_resample(self, X, y):
+            rng = np.random.RandomState(self.random_state)
+            classes, counts = np.unique(y, return_counts=True)
+            max_count = counts.max()
+            X_res, y_res = list(X), list(y)
+            for cls, cnt in zip(classes, counts):
+                if cnt < max_count:
+                    idx = np.where(y == cls)[0]
+                    extra = rng.choice(idx, max_count - cnt, replace=True)
+                    X_res.extend(X[extra])
+                    y_res.extend(y[extra])
+            return np.array(X_res), np.array(y_res)
+
+    class SMOTE:
+        """Fallback: dùng RandomOverSampler khi imblearn không có."""
+        def __init__(self, random_state=42):
+            self._ros = RandomOverSampler(random_state=random_state)
+        def fit_resample(self, X, y):
+            return self._ros.fit_resample(X, y)
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
