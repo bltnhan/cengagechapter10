@@ -779,10 +779,16 @@ def run_classification(method,df,target,features,test_size,balance):
             fi=pd.Series(mdl.feature_importances_,index=features).sort_values(ascending=False)
         else:
             fi=pd.Series(np.abs(mdl.coef_[0] if mdl.coef_.ndim>1 else mdl.coef_),index=features).sort_values(ascending=False)
-        fig3,ax3=_dark_fig(7,max(3,min(12,len(fi))*.35))
-        fi.head(15).plot(kind='barh',ax=ax3,color='#3b82f6')
-        ax3.set_title("Top 15 Features",color='#e5e7eb'); ax3.invert_yaxis()
+        _top_n=min(len(fi),20)
+        fig3,ax3=_dark_fig(7,max(3,min(14,_top_n*.4)))
+        fi.head(_top_n).plot(kind='barh',ax=ax3,color='#3b82f6')
+        ax3.set_title(f"Top {_top_n} Important Features",color='#e5e7eb'); ax3.invert_yaxis()
         plt.tight_layout(); fig_to_st(fig3, save_key=method)
+        # Hiển thị bảng feature importance
+        fi_df=fi.head(_top_n).reset_index()
+        fi_df.columns=["Feature","Importance"]
+        fi_df["Importance"]=fi_df["Importance"].round(4)
+        st.session_state.setdefault("_fi_tables",{})[method]=fi_df
     if method=="Classification Trees":
         with st.expander("🌿 Decision Tree Rules",expanded=False):
             st.code(export_text(mdl,feature_names=features,max_depth=4),language="")
@@ -890,11 +896,63 @@ def run_association(df,min_support,min_confidence,min_lift):
              "Rules found":len(rules),"Min Support":min_support,"Min Confidence":min_confidence,"Min Lift":min_lift}
     return metrics,display
 
-def export_to_excel(results_dict):
-    buf=io.BytesIO()
-    with pd.ExcelWriter(buf,engine="openpyxl") as writer:
-        for name,df in results_dict.items():
-            df.to_excel(writer,sheet_name=str(name)[:31],index=False)
+def export_to_excel(results_dict, figures_dict=None):
+    """
+    Xuất Excel với dữ liệu + biểu đồ nhúng vào cùng sheet.
+    figures_dict: {method_name: [png_bytes, ...]}
+    """
+    from openpyxl import load_workbook
+    from openpyxl.drawing.image import Image as XLImage
+
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        for name, df in results_dict.items():
+            df.to_excel(writer, sheet_name=str(name)[:31], index=False)
+
+        # Nhúng biểu đồ vào sheet riêng "Charts"
+        if figures_dict:
+            # Tạo sheet trắng "Charts"
+            wb = writer.book
+            if "Charts" not in wb.sheetnames:
+                ws_charts = wb.create_sheet("Charts")
+            else:
+                ws_charts = wb["Charts"]
+
+            row_offset = 1
+            for method_name, fig_bytes_list in figures_dict.items():
+                chart_labels = ["Confusion_Matrix","ROC_Curve","Feature_Importance",
+                                "Actual_vs_Predicted","Residuals","Elbow_Chart","Cluster_Plot"]
+                # Ghi tên model
+                ws_charts.cell(row=row_offset, column=1, value=f"▶ {method_name}")
+                ws_charts.cell(row=row_offset, column=1).font = \
+                    __import__('openpyxl').styles.Font(bold=True, size=12, color="3B82F6")
+                row_offset += 1
+
+                col_offset = 1
+                for i, img_bytes in enumerate(fig_bytes_list):
+                    try:
+                        img_io = io.BytesIO(img_bytes)
+                        xl_img = XLImage(img_io)
+                        # Scale xuống vừa vặn (khoảng 400x280 pixels)
+                        xl_img.width = 380
+                        xl_img.height = 260
+                        # Đặt ảnh: mỗi ảnh cách nhau 7 cột (~ 400px)
+                        col_letter = chr(ord('A') + (col_offset - 1) * 7)
+                        cell_ref = f"{col_letter}{row_offset}"
+                        ws_charts.add_image(xl_img, cell_ref)
+                        # Ghi label bên dưới ảnh
+                        label = chart_labels[i] if i < len(chart_labels) else f"Chart_{i+1}"
+                        ws_charts.cell(
+                            row=row_offset + 15,
+                            column=(col_offset - 1) * 7 + 1,
+                            value=label.replace("_", " ")
+                        )
+                        col_offset += 1
+                    except Exception:
+                        pass
+                # Mỗi model chiếm ~18 dòng
+                row_offset += 19
+
     return buf.getvalue()
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1380,7 +1438,7 @@ DEFAULTS={
     "prep_transforms":{},"prep_log":{},"enc_mapping":{},"user_goal":"",
     "selected_methods":[],"run_results":[],"run_exports":{},"comparison_ai":"",
     "gemini_key":"","openrouter_key":"","ai_vn":"","rec_applied":False,
-    "chat_messages":[],"_run_figures":{},
+    "chat_messages":[],"_run_figures":{},"_file_cache":{},
 }
 for k,v in DEFAULTS.items():
     if k not in st.session_state: st.session_state[k]=v
@@ -1453,6 +1511,16 @@ with st.sidebar:
         accept_multiple_files=True, label_visibility="collapsed")
     if uploaded_files:
         for uf in uploaded_files:
+            # Nếu file đã được cache (đã load trước đó), KHÔNG load lại
+            # Tránh bị override sheet khi user đang chọn sheet khác
+            already_cached = uf.name in st.session_state.get("_file_cache", {})
+            already_in_sheets = any(
+                k == uf.name or k.startswith(uf.name + "::")
+                for k in st.session_state.get("sheets", {})
+            )
+            if already_cached and already_in_sheets:
+                continue  # Skip — sheet selector sẽ handle việc đổi sheet
+
             new = load_file(uf, header_row=int(_header_row))
             for k, v in new.items():
                 if k not in st.session_state["sheets"]:
@@ -1464,40 +1532,76 @@ with st.sidebar:
     if all_sheets:
         keys = list(all_sheets.keys())
 
-        # ── Active sheet selector ──────────────────────────────────────────
-        cur_idx = keys.index(st.session_state["active_sheet"]) \
-                  if st.session_state["active_sheet"] in keys else 0
-        chosen = st.selectbox("Dataset đang chọn", keys, index=cur_idx,
-                              label_visibility="visible")
-        if chosen != st.session_state["active_sheet"]:
-            st.session_state["active_sheet"] = chosen
-            st.rerun()
+        # ── Active file selector (chỉ hiện khi nhiều file) ───────────────
+        active_key = st.session_state["active_sheet"] or keys[0]
+        if active_key not in keys:
+            active_key = keys[0]
+            st.session_state["active_sheet"] = active_key
 
-        # ── Sheet selector (chỉ hiện với Excel nhiều sheet) ───────────────
-        active_key = st.session_state["active_sheet"]
-        file_name = active_key.split("::")[0] if "::" in active_key else None
+        if len(keys) > 1:
+            # Hiển thị tên đẹp hơn (bỏ phần ::SheetName nếu có)
+            def _display_key(k):
+                parts = k.split("::")
+                return f"📄 {parts[0]}" if len(parts)==1 else f"📄 {parts[0]}  ›  {parts[1]}"
+            disp_keys = [_display_key(k) for k in keys]
+            cur_idx = keys.index(active_key) if active_key in keys else 0
+            chosen_disp = st.selectbox("File đang phân tích", disp_keys,
+                                       index=cur_idx, label_visibility="visible")
+            chosen = keys[disp_keys.index(chosen_disp)]
+            if chosen != active_key:
+                st.session_state["active_sheet"] = chosen
+                active_key = chosen
+                st.rerun()
+
+        # ── Sheet selector — luôn hiển thị nếu Excel có nhiều sheet ──────
+        file_name = active_key.split("::")[0] if "::" in active_key else active_key
         cache = st.session_state.get("_file_cache", {}).get(file_name)
-        if cache and len(cache["sheet_names"]) > 1:
-            cur_sheet = cache["current_sheet"]
-            sheet_idx = cache["sheet_names"].index(cur_sheet) \
-                        if cur_sheet in cache["sheet_names"] else 0
+
+        if cache and len(cache.get("sheet_names", [])) > 1:
+            cur_sheet = cache.get("current_sheet", cache["sheet_names"][0])
+            sheet_names = cache["sheet_names"]
+            sheet_idx = sheet_names.index(cur_sheet) if cur_sheet in sheet_names else 0
+
+            st.markdown('<div style="font-size:.7rem;color:#6b7280;margin-top:8px;margin-bottom:3px">📋 CHỌN SHEET</div>',
+                        unsafe_allow_html=True)
             sel_sheet = st.selectbox(
-                "Sheet", cache["sheet_names"], index=sheet_idx,
-                label_visibility="visible"
+                "Sheet trong file", sheet_names, index=sheet_idx,
+                label_visibility="collapsed",
+                help=f"File có {len(sheet_names)} sheets — chọn sheet để đọc dữ liệu"
             )
+
+            # Hiển thị danh sách sheet nhỏ
+            sheet_chips = " ".join(
+                f'<span style="background:{"rgba(59,130,246,.2)" if s==sel_sheet else "var(--card2)"};'
+                f'color:{"#60a5fa" if s==sel_sheet else "#6b7280"};padding:2px 8px;border-radius:4px;'
+                f'font-size:.7rem;margin:1px">{s}</span>'
+                for s in sheet_names
+            )
+            st.markdown(f'<div style="margin-bottom:4px">{sheet_chips}</div>', unsafe_allow_html=True)
+
             if sel_sheet != cur_sheet:
-                # Reload sheet được chọn
                 try:
-                    new_df = load_sheet(cache["raw_bytes"], sel_sheet,
-                                        cache["engine"], int(_header_row))
+                    with st.spinner(f"Đang đọc sheet '{sel_sheet}'..."):
+                        new_df = load_sheet(cache["raw_bytes"], sel_sheet,
+                                            cache["engine"], int(_header_row))
                     new_key = f"{file_name}::{sel_sheet}"
+                    # Xóa key cũ, thêm key mới
                     st.session_state["sheets"].pop(active_key, None)
                     st.session_state["sheets"][new_key] = new_df
                     st.session_state["active_sheet"] = new_key
                     cache["current_sheet"] = sel_sheet
+                    # Reset prep transforms vì đổi sheet
+                    st.session_state["prep_transforms"].pop(active_key, None)
+                    st.session_state["prep_log"].pop(active_key, None)
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Lỗi đọc sheet: {e}")
+                    st.error(f"❌ Lỗi đọc sheet '{sel_sheet}': {e}")
+        elif cache and len(cache.get("sheet_names", [])) == 1:
+            st.markdown(
+                f'<div style="font-size:.72rem;color:#4b5563;padding:3px 0">'
+                f'📋 Sheet: <b style="color:#9ca3af">{cache["sheet_names"][0]}</b></div>',
+                unsafe_allow_html=True
+            )
 
         if len(all_sheets) > 1:
             with st.expander("🔗 Merge Files", expanded=False):
@@ -1855,7 +1959,7 @@ if ws>=3:
     sec_hdr("⚡","Step 3 — Analysis & Profiling","purple",
             subtitle=f"{df_active.shape[0]:,} rows × {df_active.shape[1]} cols")
 
-    adv_tab,run_tab,eda_tab=st.tabs(["🎯 Algorithm Advisor","🤖 Run ML Models","🔬 EDA Profiling"])
+    adv_tab,eda_tab,run_tab=st.tabs(["🎯 Algorithm Advisor","🔬 EDA & Validation","🤖 Run ML Models"])
 
     with adv_tab:
         render_algo_advisor(df_active)
@@ -1909,8 +2013,40 @@ if ws>=3:
             with cb2:
                 feature_cols=st.multiselect("📐 Feature columns",[c for c in all_cols if c!=target_col],
                     default=[c for c in numeric_cols if c!=target_col][:10])
-            test_size=st.slider("Test split %",10,40,20,help="20% = train on 80%, evaluate on 20%.")/100
-            if has_clf: balance_opt=st.selectbox("Class balancing",["None","Random Oversampling","SMOTE"])
+            _ts_c1, _ts_c2 = st.columns([4, 1])
+            with _ts_c1:
+                test_size_pct = st.slider(
+                    "Test split %", 5, 50,
+                    st.session_state.get("_test_split_pct", 20),
+                    step=1,
+                    help="Kéo để chọn % dữ liệu dùng để test. VD: 20% = train 80%, test 20%.",
+                    key="_ts_slider"
+                )
+            st.session_state["_test_split_pct"] = test_size_pct
+            with _ts_c2:
+                st.markdown(
+                    f'<div style="background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.3);'
+                    f'border-radius:8px;padding:8px 12px;text-align:center;margin-top:4px">'
+                    f'<div style="font-size:22px;font-weight:800;color:#60a5fa">{test_size_pct}%</div>'
+                    f'<div style="font-size:10px;color:#6b7280">test</div>'
+                    f'<div style="font-size:10px;color:#34d399">{100-test_size_pct}% train</div>'
+                    f'</div>', unsafe_allow_html=True
+                )
+            test_size = test_size_pct / 100
+            if has_clf:
+                balance_opt=st.selectbox("Class balancing",["None","Random Oversampling","SMOTE"],
+                    help="None: không cân bằng | Oversampling: nhân bản dữ liệu thiểu số | SMOTE: tổng hợp điểm dữ liệu mới")
+                if balance_opt != "None":
+                    _y_check=df_active[target_col].dropna() if target_col else pd.Series()
+                    if len(_y_check)>0:
+                        _vc=_y_check.value_counts()
+                        _ratio=_vc.min()/_vc.max() if _vc.max()>0 else 1
+                        if _ratio > 0.8:
+                            st.info(f"ℹ️ Data khá cân bằng (ratio={_ratio:.0%}) — balancing có thể không cần thiết.")
+                        elif _ratio < 0.2:
+                            st.warning(f"⚠️ Data rất mất cân bằng (ratio={_ratio:.0%}). {balance_opt} sẽ tăng minority class.")
+                            if balance_opt == "SMOTE":
+                                st.warning("🔴 **Cảnh báo SMOTE**: Dữ liệu rất mất cân bằng + SMOTE có nguy cơ **overfitting** — SMOTE tạo điểm tổng hợp dựa trên minority samples gốc, nếu tập quá nhỏ sẽ tạo ra overlap. Kiểm tra AUC trên validation set thực.")
 
         if has_clus:
             sec_hdr("⚙️","Configure Clustering","green")
@@ -1929,6 +2065,7 @@ if ws>=3:
         elif st.button("🚀 Run Selected Methods",type="primary"):
             st.session_state["run_results"]=[]; st.session_state["run_exports"]={}
             st.session_state["_run_figures"]={}
+            st.session_state["_fi_tables"]={}
             for method in sel:
                 group=METHODS[method]["group"]
                 sec_hdr("▶","Running: "+method,"purple")
@@ -1969,6 +2106,48 @@ if ws>=3:
                         st.session_state["run_results"].append({"Method":method,"Before rows":len(y_),"After rows":len(yr)})
                 except Exception as e: st.error(f"Error running {method}: {e}")
             st.session_state["wizard_step"]=4; st.rerun()
+
+    # ── Grouping & Binning ─────────────────────────────────────────────────
+    with st.expander("🗂️ Grouping & Binning (tùy chọn)", expanded=False):
+        sec_hdr("🗂️","Grouping & Binning","amber",subtitle="Tạo nhóm/khoảng giá trị từ cột số hoặc cột phân loại")
+        gb_col=st.selectbox("Chọn cột để bin/group",["(chọn cột)"] + df_active.columns.tolist(),key="gb_col")
+        if gb_col and gb_col != "(chọn cột)":
+            gb_type=st.radio("Loại","Binning (số → khoảng) | Grouping (text → nhóm)".split(" | "),horizontal=True,key="gb_type")
+            if "Binning" in gb_type and pd.api.types.is_numeric_dtype(df_active[gb_col]):
+                gb_bins=st.slider("Số khoảng",2,20,5,key="gb_bins")
+                gb_labels_raw=st.text_input("Tên khoảng (cách nhau bởi dấu phẩy, để trống = tự động)",key="gb_labels")
+                gb_new_col=st.text_input("Tên cột mới",value=f"{gb_col}_bin",key="gb_new_col")
+                if st.button("✅ Áp dụng Binning",key="do_bin"):
+                    try:
+                        labels=None
+                        if gb_labels_raw.strip():
+                            labels=[l.strip() for l in gb_labels_raw.split(",")]
+                            if len(labels)!=gb_bins: labels=None; st.warning(f"Cần {gb_bins} nhãn, bỏ qua labels.")
+                        cur_df2[gb_new_col]=pd.cut(cur_df2[gb_col],bins=gb_bins,labels=labels)
+                        cur_df2[gb_new_col]=cur_df2[gb_new_col].astype(str)
+                        new_json=_df_to_json(cur_df2)
+                        st.session_state["prep_transforms"][prep_target].append((f"Binning {gb_col}→{gb_bins} bins",new_json))
+                        st.success(f"✅ Đã tạo cột '{gb_new_col}' với {gb_bins} khoảng"); st.rerun()
+                    except Exception as e: st.error(f"Lỗi Binning: {e}")
+            elif "Grouping" in gb_type and not pd.api.types.is_numeric_dtype(df_active[gb_col]):
+                unique_vals=sorted(cur_df2[gb_col].dropna().unique().tolist())
+                st.markdown(f"**Giá trị duy nhất ({len(unique_vals)}):** {', '.join(str(v) for v in unique_vals[:20])}")
+                gb_map_raw=st.text_area("Mapping (mỗi dòng: giá_trị_gốc → nhóm_mới)",
+                    placeholder="Hà Nội → Miền Bắc\nTP.HCM → Miền Nam",key="gb_map")
+                gb_new_col2=st.text_input("Tên cột mới",value=f"{gb_col}_group",key="gb_new_col2")
+                if st.button("✅ Áp dụng Grouping",key="do_group"):
+                    try:
+                        mapping={}
+                        for line in gb_map_raw.strip().split("\n"):
+                            if "→" in line:
+                                k,v=line.split("→",1); mapping[k.strip()]=v.strip()
+                        cur_df2[gb_new_col2]=cur_df2[gb_col].map(mapping).fillna(cur_df2[gb_col])
+                        new_json=_df_to_json(cur_df2)
+                        st.session_state["prep_transforms"][prep_target].append((f"Grouping {gb_col}→{gb_new_col2}",new_json))
+                        st.success(f"✅ Đã tạo cột '{gb_new_col2}' với {cur_df2[gb_new_col2].nunique()} nhóm"); st.rerun()
+                    except Exception as e: st.error(f"Lỗi Grouping: {e}")
+            else:
+                st.info("Binning chỉ áp dụng cho cột số. Grouping chỉ áp dụng cho cột text.")
 
     if ws==3:
         st.markdown("<br>",unsafe_allow_html=True)
@@ -2080,6 +2259,30 @@ if ws>=4:
                         with cols[i % min(n, 3)]:
                             st.image(img_bytes, use_container_width=True)
 
+            # ── Export PNG biểu đồ ─────────────────────────────────────────
+            saved_figs = st.session_state.get("_run_figures", {})
+            if saved_figs:
+                sec_hdr("📥","Tải xuống biểu đồ","green")
+                for mname, fig_list in saved_figs.items():
+                    for i, img_bytes in enumerate(fig_list):
+                        chart_labels = ["Confusion_Matrix","ROC_Curve","Feature_Importance","Actual_vs_Predicted","Residuals","Elbow_Chart","Cluster_Plot"]
+                        label = chart_labels[i] if i < len(chart_labels) else f"Chart_{i+1}"
+                        st.download_button(f"⬇️ {mname} — {label}.png",
+                            data=img_bytes, file_name=f"{mname}_{label}.png",
+                            mime="image/png", key=f"dl_fig_{mname}_{i}")
+
+            # ── Feature Importance Table ───────────────────────────────────
+            fi_tables = st.session_state.get("_fi_tables", {})
+            if fi_tables:
+                sec_hdr("📊","Feature Importance","blue")
+                for mname, fi_df in fi_tables.items():
+                    with st.expander(f"📋 {mname} — Top {len(fi_df)} Features", expanded=False):
+                        st.dataframe(_sanitize_df(fi_df), width='stretch')
+                        fi_csv = fi_df.to_csv(index=False).encode()
+                        st.download_button(f"⬇️ Download {mname}_features.csv",
+                            data=fi_csv, file_name=f"{mname}_feature_importance.csv",
+                            mime="text/csv", key=f"dl_fi_{mname}")
+
             st.markdown("---"); sec_hdr("🤖","AI Analysis of Results","purple")
             if st.button("🔎 Generate AI Explanation",type="primary",key="gaie"):
                 results_text=cmp_df.to_string(index=False)
@@ -2102,6 +2305,7 @@ if ws>=4:
                         with st.spinner("Đang dịch…"):
                             txt2=st.session_state["comparison_ai"][:3000]
                             vn2=ask_ai("Translate to natural Vietnamese. No markdown. "+txt2)
+                        st.session_state["ai_vn"]=vn2
                 if st.session_state.get("ai_vn"): render_ai_box(st.session_state["ai_vn"],"🇻🇳 Giải thích Tiếng Việt")
 
     with adv_tab3:
@@ -2116,20 +2320,23 @@ if ws>=4:
                 exp_sheets["AI Explanation"]=pd.DataFrame({"AI Explanation":st.session_state["comparison_ai"].split("\n")})
             if st.session_state.get("ai_blueprint"):
                 exp_sheets["AI Blueprint"]=pd.DataFrame({"AI Blueprint":st.session_state["ai_blueprint"].split("\n")})
+            # Feature importance tables
+            for mname, fi_df in st.session_state.get("_fi_tables",{}).items():
+                exp_sheets[f"FI_{mname[:25]}"]=fi_df
             for sname in exp_sheets:
                 df_p=exp_sheets[sname]
                 st.markdown(f'<div style="background:#0f1629;border:1px solid #1f2937;border-radius:7px;padding:6px 12px;margin-bottom:4px;font-size:.79rem;color:#9ca3af">📑 <b style="color:#60a5fa">{sname}</b> — {df_p.shape[0]:,} rows × {df_p.shape[1]} cols</div>',unsafe_allow_html=True)
             st.markdown("<br>",unsafe_allow_html=True)
-            excel_bytes=export_to_excel(exp_sheets)
-            st.download_button("⬇️ Download Full Results (Excel)",data=excel_bytes,
+            figures_dict = st.session_state.get("_run_figures", {})
+            excel_bytes=export_to_excel(exp_sheets, figures_dict=figures_dict if figures_dict else None)
+            st.download_button("⬇️ Download Full Results + Charts (Excel)",data=excel_bytes,
                 file_name=f"DataMineAI_{active_name[:20].replace(' ','_')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-
     st.markdown("---")
-    if st.button("🔄 Start New Analysis (reset all)"):
+    if st.button("\U0001f504 Start New Analysis (reset all)"):
         for key2 in ["wizard_step","ai_blueprint","prep_transforms","prep_log","enc_mapping",
-                     "user_goal","selected_methods","run_results","run_exports","comparison_ai","ai_vn","chat_messages","_run_figures"]:
+                     "user_goal","selected_methods","run_results","run_exports","comparison_ai","ai_vn","chat_messages","_run_figures","_fi_tables"]:
             if isinstance(DEFAULTS.get(key2),dict): st.session_state[key2]={}
             elif isinstance(DEFAULTS.get(key2),list): st.session_state[key2]=[]
             else: st.session_state[key2]=DEFAULTS.get(key2,"")
