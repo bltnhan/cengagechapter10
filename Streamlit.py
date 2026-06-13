@@ -100,7 +100,7 @@ summary{color:#9ca3af!important;}
 .prob-fix{font-size:.72rem;color:#6b7280;font-style:italic;}
 
 .method-card{background:#111827;border:1px solid #1f2937;border-radius:10px;padding:11px 13px;margin-bottom:4px;}
-.method-card.sel{border-color:#3b82f6;background:#0f1f3d;}
+.method-card.sel{border-color:#10b981;background:#052e1c;box-shadow:0 0 0 1px #10b981;}
 .method-name{font-size:.83rem;font-weight:600;color:#f1f5f9;}
 .method-vn{font-size:.7rem;color:#6b7280;margin-top:1px;}
 .method-desc{font-size:.71rem;color:#9ca3af;margin-top:5px;line-height:1.4;}
@@ -1979,9 +1979,11 @@ if ws>=3:
                 in_sel=mname in st.session_state["selected_methods"]
                 with cols_m[i%len(cols_m)]:
                     sel_cls=" sel" if in_sel else ""
+                    sel_badge = '<span style="float:right;background:#10b981;color:white;font-size:.62rem;font-weight:700;padding:2px 7px;border-radius:10px">✅ Selected</span>' if in_sel else ""
+                    name_color = "#34d399" if in_sel else "#f1f5f9"
                     st.markdown(
-                        f'<div class="method-card{sel_cls}"><span class="mbadge {meta["badge"]}">{group_id[:4].upper()}</span>'
-                        f'<div class="method-name">{mname}</div><div class="method-vn">{meta["vn"]}</div>'
+                        f'<div class="method-card{sel_cls}">{sel_badge}<span class="mbadge {meta["badge"]}">{group_id[:4].upper()}</span>'
+                        f'<div class="method-name" style="color:{name_color}">{mname}</div><div class="method-vn">{meta["vn"]}</div>'
                         f'<div class="method-desc">{meta["desc"]}</div></div>',unsafe_allow_html=True)
                     if in_sel:
                         if st.button("✓ Remove",key=f"rm_{mname}"): st.session_state["selected_methods"].remove(mname); st.rerun()
