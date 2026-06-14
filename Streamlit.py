@@ -304,7 +304,7 @@ GROUP_META = {
     "classification":{"label":"Classification","color":"#60a5fa","icon":"🔵"},
     "prediction":    {"label":"Prediction / Regression","color":"#a78bfa","icon":"🟣"},
     "association":   {"label":"Clustering & Association","color":"#f472b6","icon":"🔴"},
-    "balancing":     {"label":"Class Balancing","color":"#fbbf24","icon":"🟡"},
+    # "balancing" group removed — handled by Class balancing dropdown instead
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -668,13 +668,27 @@ def fix_duplicates(df_json):
 
 @st.cache_data(show_spinner=False)
 def fix_outliers(df_json):
+    """Cap outlier: giới hạn giá trị tại ngưỡng 3×IQR, không xóa dòng."""
     df=_json_to_df(df_json); capped=0
     for col in df.select_dtypes(include=[np.number]).columns:
         q1,q3=df[col].quantile(.25),df[col].quantile(.75); iqr=q3-q1
         if iqr>0:
             lo,hi=q1-3*iqr,q3+3*iqr
             capped+=((df[col]<lo)|(df[col]>hi)).sum(); df[col]=df[col].clip(lower=lo,upper=hi)
-    return _df_to_json(df),f"Capped {capped} extreme outlier values (3×IQR)."
+    return _df_to_json(df),f"Capped {capped} extreme outlier values (3×IQR) — dòng vẫn được giữ lại, chỉ đổi giá trị."
+
+def remove_outliers(df_json):
+    """Clean outlier: xóa hẳn các dòng có ít nhất 1 cột vượt ngưỡng 3×IQR."""
+    df=_json_to_df(df_json)
+    before=len(df); mask=pd.Series([True]*before,index=df.index)
+    for col in df.select_dtypes(include=[np.number]).columns:
+        q1,q3=df[col].quantile(.25),df[col].quantile(.75); iqr=q3-q1
+        if iqr>0:
+            lo,hi=q1-3*iqr,q3+3*iqr
+            mask=mask&(df[col]>=lo)&(df[col]<=hi)
+    df=df[mask].reset_index(drop=True)
+    removed=before-len(df)
+    return _df_to_json(df),f"Đã xóa {removed} dòng chứa outlier ({removed/before:.1%}). Còn lại {len(df):,} dòng."
 
 @st.cache_data(show_spinner=False)
 def fix_encode(df_json):
@@ -737,7 +751,7 @@ def run_classification(method,df,target,features,test_size,balance):
     metrics={"Method":method,"Sheet":st.session_state.get("active_sheet",""),
              "Accuracy":f"{acc:.4f}","Precision":f"{prec:.4f}","Recall":f"{rec:.4f}",
              "F1-Score":f"{f1:.4f}","AUC":f"{auc:.4f}" if auc else "N/A",
-             "Train rows":len(X_tr),"Test rows":len(X_te)}
+             "Train rows":len(X_tr),"Validation rows":len(X_te)}
     c1,c2,c3,c4=st.columns(4)
     c1.metric("Accuracy",f"{acc:.2%}"); c2.metric("F1",f"{f1:.4f}")
     c3.metric("AUC",f"{auc:.4f}" if auc else "N/A"); c4.metric("Precision",f"{prec:.4f}")
@@ -802,7 +816,7 @@ def run_regression(method,df,target,features,test_size):
     mdl.fit(X_tr,y_tr); y_pred=mdl.predict(X_te)
     mse=mean_squared_error(y_te,y_pred); r2=r2_score(y_te,y_pred); residuals=y_te-y_pred
     metrics={"Method":method,"Sheet":st.session_state.get("active_sheet",""),
-             "R²":f"{r2:.4f}","RMSE":f"{np.sqrt(mse):.4f}","Train rows":len(X_tr),"Test rows":len(X_te)}
+             "R²":f"{r2:.4f}","RMSE":f"{np.sqrt(mse):.4f}","Train rows":len(X_tr),"Validation rows":len(X_te)}
     c1,c2=st.columns(2); c1.metric("R² Score",f"{r2:.4f}"); c2.metric("RMSE",f"{np.sqrt(mse):.4f}")
     if r2>=.7: st.success(f"R²={r2:.4f} — Good fit ({r2:.1%} variance explained).")
     elif r2>=.4: st.warning(f"R²={r2:.4f} — Moderate. Consider adding features.")
@@ -1792,6 +1806,35 @@ stat_row([
     (f"{dup_count:,}","Duplicates","sv-red" if dup_count>0 else "sv-green"),
 ])
 
+# ── Nút cập nhật header — đặt ngay trên preview data ────────────────────────
+_cur_header_s1 = st.session_state.get("_header_row", 0)
+_h_col, _h_btn = st.columns([4, 1])
+with _h_col:
+    st.markdown(
+        f'<div style="font-size:.8rem;color:#6b7280;padding:4px 0">'
+        f'📌 Dòng header: <b style="color:#f9fafb">{_cur_header_s1}</b> '
+        f'(đổi số ở sidebar → nhấn "Cập nhật header" để reload)</div>',
+        unsafe_allow_html=True)
+with _h_btn:
+    if st.button("🔄 Cập nhật header", key="update_header_s1"):
+        _active_k = st.session_state.get("active_sheet","")
+        _fname = _active_k.split("::")[0] if "::" in _active_k else _active_k
+        _cache_s1 = st.session_state.get("_file_cache", {}).get(_fname)
+        if _cache_s1:
+            _cur_sh_s1 = _cache_s1.get("current_sheet", _cache_s1["sheet_names"][0])
+            try:
+                _new_df_s1 = load_sheet(_cache_s1["raw_bytes"], _cur_sh_s1,
+                                        _cache_s1["engine"], _cur_header_s1)
+                st.session_state["sheets"][_active_k] = _new_df_s1
+                st.session_state["prep_transforms"].pop(_active_k, None)
+                st.session_state["prep_log"].pop(_active_k, None)
+                st.success(f"✅ Đã đọc lại từ dòng header {_cur_header_s1}")
+                st.rerun()
+            except Exception as _he_s1:
+                st.error(f"Lỗi: {_he_s1}")
+        else:
+            st.info("Chỉ hỗ trợ file Excel. Với CSV, upload lại với header mới.")
+
 file_tabs=st.tabs([f"📄 {n}" for n in all_loaded.keys()])
 for tab,(sname,sdf) in zip(file_tabs,all_loaded.items()):
     _s=st.session_state["prep_transforms"].get(sname,[])
@@ -1832,35 +1875,6 @@ if ws>=2:
         prep_target=active_name
     prep_raw=all_loaded_2.get(prep_target,raw_df)
 
-    # ── Cập nhật header row ──────────────────────────────────────────────────
-    _cur_header = st.session_state.get("_header_row", 0)
-    _file_name_prep = prep_target.split("::")[0] if "::" in prep_target else prep_target
-    _cache_prep = st.session_state.get("_file_cache", {}).get(_file_name_prep)
-    _ph_col, _ph_btn = st.columns([3, 1])
-    with _ph_col:
-        st.markdown(
-            f'<div style="font-size:.8rem;color:#6b7280;padding:6px 0">'
-            f'📌 Dòng header hiện tại: <b style="color:#f9fafb">{_cur_header}</b> '
-            f'— Đổi số ở sidebar rồi nhấn nút để cập nhật lại</div>',
-            unsafe_allow_html=True)
-    with _ph_btn:
-        if st.button("🔄 Cập nhật header", key="update_header"):
-            if _cache_prep:
-                # Excel — reload sheet hiện tại với header mới
-                _cur_sh = _cache_prep["current_sheet"]
-                try:
-                    _new_df = load_sheet(_cache_prep["raw_bytes"], _cur_sh,
-                                         _cache_prep["engine"], _cur_header)
-                    st.session_state["sheets"][prep_target] = _new_df
-                    # Reset prep transforms vì header thay đổi
-                    st.session_state["prep_transforms"].pop(prep_target, None)
-                    st.session_state["prep_log"].pop(prep_target, None)
-                    st.success(f"✅ Đã cập nhật header dòng {_cur_header} cho sheet '{_cur_sh}'")
-                    st.rerun()
-                except Exception as _he:
-                    st.error(f"Lỗi cập nhật header: {_he}")
-            else:
-                st.info("Tính năng này chỉ hỗ trợ file Excel. Với CSV, upload lại với dòng header mới.")
     if prep_target not in st.session_state["prep_log"]: st.session_state["prep_log"][prep_target]=[]
     if prep_target not in st.session_state["prep_transforms"]: st.session_state["prep_transforms"][prep_target]=[]
     stack=st.session_state["prep_transforms"][prep_target]; log=st.session_state["prep_log"][prep_target]
@@ -1901,9 +1915,18 @@ if ws>=2:
             nj,msg=fix_duplicates(cur_json); stack.append(("🗑️ Remove Dups",nj)); log.append(("🗑️ Duplicates",msg))
             detect_problems.clear(); st.rerun()
     with b3:
-        if st.button("📐 Cap Outliers" if has_out else "✅ No Extremes",disabled=not has_out,key=f"bo_{prep_target[:8]}"):
-            nj,msg=fix_outliers(cur_json); stack.append(("📐 Cap Outliers",nj)); log.append(("📐 Outliers",msg))
-            detect_problems.clear(); st.rerun()
+        if has_out:
+            _out_action = st.selectbox("Outlier action",
+                ["📐 Cap (giữ dòng, đổi giá trị)","🗑️ Clean (xóa dòng outlier)"],
+                key=f"out_act_{prep_target[:8]}", label_visibility="collapsed")
+            if st.button("▶ Xử lý Outlier", key=f"bo_{prep_target[:8]}"):
+                if "Cap" in _out_action:
+                    nj,msg=fix_outliers(cur_json); stack.append(("📐 Cap Outliers",nj)); log.append(("📐 Cap Outliers",msg))
+                else:
+                    nj,msg=remove_outliers(cur_json); stack.append(("🗑️ Clean Outliers",nj)); log.append(("🗑️ Clean Outliers",msg))
+                detect_problems.clear(); st.rerun()
+        else:
+            st.button("✅ No Extremes", disabled=True, key=f"bo_{prep_target[:8]}")
     with b4:
         if st.button("🔤 Encode Text" if has_text else "✅ No Text Cols",disabled=not has_text,key=f"be_{prep_target[:8]}"):
             nj,msg,mapping=fix_encode(cur_json); stack.append(("🔤 Encode Text",nj)); log.append(("🔤 Encoding",msg))
@@ -1915,6 +1938,52 @@ if ws>=2:
                 st.markdown(f"**`{col}`**")
                 mdf=pd.DataFrame(list(vm.items()),columns=["Original","Encoded"]).sort_values("Encoded")
                 st.dataframe(_sanitize_df(mdf),width='stretch',height=min(200,35*len(mdf)+38))
+    # ── Grouping & Binning (trong Prep Data) ────────────────────────────────
+    st.markdown("---")
+    sec_hdr("🗂️","Grouping & Binning","amber",subtitle="Tạo cột mới: nhóm giá trị text hoặc chia khoảng số")
+    _gb_c1, _gb_c2 = st.columns([2,3])
+    with _gb_c1:
+        gb_col=st.selectbox("Chọn cột",["(chọn cột)"] + cur_df.columns.tolist(),key=f"gb_col_{prep_target[:8]}")
+    if gb_col and gb_col != "(chọn cột)":
+        with _gb_c2:
+            gb_type=st.radio("Loại","Binning (số→khoảng) | Grouping (text→nhóm)".split(" | "),
+                horizontal=True,key=f"gb_type_{prep_target[:8]}")
+        if "Binning" in gb_type and pd.api.types.is_numeric_dtype(cur_df[gb_col]):
+            _gc1,_gc2,_gc3=st.columns([1,2,2])
+            with _gc1: gb_bins=st.number_input("Số khoảng",2,50,5,key=f"gb_bins_{prep_target[:8]}")
+            with _gc2: gb_labels_raw=st.text_input("Nhãn khoảng (cách phẩy, để trống=tự động)",key=f"gb_labels_{prep_target[:8]}")
+            with _gc3: gb_new_col=st.text_input("Tên cột mới",value=f"{gb_col}_bin",key=f"gb_new_col_{prep_target[:8]}")
+            if st.button("✅ Áp dụng Binning",key=f"do_bin_{prep_target[:8]}"):
+                try:
+                    labels=None
+                    if gb_labels_raw.strip():
+                        labels=[l.strip() for l in gb_labels_raw.split(",")]
+                        if len(labels)!=gb_bins: labels=None; st.warning(f"Cần {gb_bins} nhãn, bỏ qua labels.")
+                    cur_df[gb_new_col]=pd.cut(cur_df[gb_col],bins=int(gb_bins),labels=labels)
+                    cur_df[gb_new_col]=cur_df[gb_new_col].astype(str)
+                    new_json=_df_to_json(cur_df)
+                    st.session_state["prep_transforms"][prep_target].append((f"Binning {gb_col}→{gb_bins} bins",new_json))
+                    st.success(f"✅ Đã tạo cột '{gb_new_col}' với {gb_bins} khoảng"); st.rerun()
+                except Exception as e: st.error(f"Lỗi Binning: {e}")
+        elif "Grouping" in gb_type and not pd.api.types.is_numeric_dtype(cur_df[gb_col]):
+            unique_vals=sorted(cur_df[gb_col].dropna().unique().tolist())
+            st.markdown(f"**Giá trị duy nhất ({len(unique_vals)}):** {', '.join(str(v) for v in unique_vals[:20])}")
+            gb_map_raw=st.text_area("Mapping (mỗi dòng: giá_trị_gốc → nhóm_mới)",
+                placeholder="Hà Nội → Miền Bắc\nTP.HCM → Miền Nam",key=f"gb_map_{prep_target[:8]}")
+            gb_new_col2=st.text_input("Tên cột mới",value=f"{gb_col}_group",key=f"gb_new_col2_{prep_target[:8]}")
+            if st.button("✅ Áp dụng Grouping",key=f"do_group_{prep_target[:8]}"):
+                try:
+                    mapping={}
+                    for line in gb_map_raw.strip().split("\n"):
+                        if "→" in line:
+                            k,v=line.split("→",1); mapping[k.strip()]=v.strip()
+                    cur_df[gb_new_col2]=cur_df[gb_col].map(mapping).fillna(cur_df[gb_col])
+                    new_json=_df_to_json(cur_df)
+                    st.session_state["prep_transforms"][prep_target].append((f"Grouping {gb_col}→{gb_new_col2}",new_json))
+                    st.success(f"✅ Đã tạo cột '{gb_new_col2}' với {cur_df[gb_new_col2].nunique()} nhóm"); st.rerun()
+                except Exception as e: st.error(f"Lỗi Grouping: {e}")
+        else:
+            st.info("Binning chỉ áp dụng cho cột số. Grouping chỉ áp dụng cho cột text.")
 
     if log:
         st.markdown("---"); sec_hdr("📋","Change Log","green")
@@ -1929,8 +1998,24 @@ if ws>=2:
             st.markdown('<div class="diff-label dl-green">✅ After</div>',unsafe_allow_html=True)
             st.markdown(f'<div class="diff-after"><div style="font-size:.79rem;color:#d1d5db">📏 {cur_df2.shape[0]:,}×{cur_df2.shape[1]} &nbsp;|&nbsp; ❓ {cur_df2.isnull().sum().sum():,} missing &nbsp;|&nbsp; 📋 {cur_df2.duplicated().sum():,} dups</div></div>',unsafe_allow_html=True)
             st.dataframe(_sanitize_df(cur_df2.head(5)),width='stretch',height=165)
-        st.download_button("⬇️ Download Cleaned CSV",cur_df2.to_csv(index=False).encode(),
-            file_name=f"cleaned_{prep_target[:25].replace(' ','_')}.csv",mime="text/csv")
+        # ── Xuất Before/After dạng Excel ─────────────────────────────────
+        _prep_fname = prep_target.replace('::','_').replace(' ','_')[:30]
+        _export_sheets = {
+            "📋 Raw Data (Before)": _sanitize_df(prep_raw.copy()),
+            "✅ Cleaned Data (After)": _sanitize_df(cur_df2.copy()),
+        }
+        # Thêm prep log
+        if log:
+            _log_df = pd.DataFrame([(i+1, step, msg) for i,(step,msg) in enumerate(log)],
+                                   columns=["Step","Action","Detail"])
+            _export_sheets["📝 Prep Log"] = _log_df
+        _before_after_bytes = export_to_excel(_export_sheets)
+        st.download_button(
+            "⬇️ Download Before / After (Excel)",
+            data=_before_after_bytes,
+            file_name=f"before_after_{_prep_fname}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
         cu,cr=st.columns(2)
         with cu:
             if st.button("↩️ Undo"): stack.pop(); log.pop(); detect_problems.clear(); st.rerun()
@@ -1971,7 +2056,7 @@ if ws>=3:
         numeric_cols=df_active.select_dtypes(include=[np.number]).columns.tolist()
         all_cols=df_active.columns.tolist()
 
-        for group_id,gmeta in GROUP_META.items():
+        for group_id,gmeta in {k:v for k,v in GROUP_META.items() if k!="balancing"}.items():
             methods_in=[(n,m) for n,m in METHODS.items() if m["group"]==group_id]
             st.markdown(f'<div style="font-size:.79rem;font-weight:700;color:{gmeta["color"]};margin:11px 0 6px;letter-spacing:.02em">{gmeta["icon"]} {gmeta["label"]}</div>',unsafe_allow_html=True)
             cols_m=st.columns(min(4,len(methods_in)))
@@ -2018,10 +2103,10 @@ if ws>=3:
             _ts_c1, _ts_c2 = st.columns([4, 1])
             with _ts_c1:
                 test_size_pct = st.slider(
-                    "Test split %", 5, 50,
+                    "Validation split %", 5, 50,
                     st.session_state.get("_test_split_pct", 20),
                     step=1,
-                    help="Kéo để chọn % dữ liệu dùng để test. VD: 20% = train 80%, test 20%.",
+                    help="Kéo để chọn % dữ liệu dùng để validation. VD: 20% = train 80%, validation 20%.",
                     key="_ts_slider"
                 )
             st.session_state["_test_split_pct"] = test_size_pct
@@ -2030,7 +2115,7 @@ if ws>=3:
                     f'<div style="background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.3);'
                     f'border-radius:8px;padding:8px 12px;text-align:center;margin-top:4px">'
                     f'<div style="font-size:22px;font-weight:800;color:#60a5fa">{test_size_pct}%</div>'
-                    f'<div style="font-size:10px;color:#6b7280">test</div>'
+                    f'<div style="font-size:10px;color:#6b7280">validation</div>'
                     f'<div style="font-size:10px;color:#34d399">{100-test_size_pct}% train</div>'
                     f'</div>', unsafe_allow_html=True
                 )
@@ -2109,47 +2194,6 @@ if ws>=3:
                 except Exception as e: st.error(f"Error running {method}: {e}")
             st.session_state["wizard_step"]=4; st.rerun()
 
-    # ── Grouping & Binning ─────────────────────────────────────────────────
-    with st.expander("🗂️ Grouping & Binning (tùy chọn)", expanded=False):
-        sec_hdr("🗂️","Grouping & Binning","amber",subtitle="Tạo nhóm/khoảng giá trị từ cột số hoặc cột phân loại")
-        gb_col=st.selectbox("Chọn cột để bin/group",["(chọn cột)"] + df_active.columns.tolist(),key="gb_col")
-        if gb_col and gb_col != "(chọn cột)":
-            gb_type=st.radio("Loại","Binning (số → khoảng) | Grouping (text → nhóm)".split(" | "),horizontal=True,key="gb_type")
-            if "Binning" in gb_type and pd.api.types.is_numeric_dtype(df_active[gb_col]):
-                gb_bins=st.slider("Số khoảng",2,20,5,key="gb_bins")
-                gb_labels_raw=st.text_input("Tên khoảng (cách nhau bởi dấu phẩy, để trống = tự động)",key="gb_labels")
-                gb_new_col=st.text_input("Tên cột mới",value=f"{gb_col}_bin",key="gb_new_col")
-                if st.button("✅ Áp dụng Binning",key="do_bin"):
-                    try:
-                        labels=None
-                        if gb_labels_raw.strip():
-                            labels=[l.strip() for l in gb_labels_raw.split(",")]
-                            if len(labels)!=gb_bins: labels=None; st.warning(f"Cần {gb_bins} nhãn, bỏ qua labels.")
-                        cur_df2[gb_new_col]=pd.cut(cur_df2[gb_col],bins=gb_bins,labels=labels)
-                        cur_df2[gb_new_col]=cur_df2[gb_new_col].astype(str)
-                        new_json=_df_to_json(cur_df2)
-                        st.session_state["prep_transforms"][prep_target].append((f"Binning {gb_col}→{gb_bins} bins",new_json))
-                        st.success(f"✅ Đã tạo cột '{gb_new_col}' với {gb_bins} khoảng"); st.rerun()
-                    except Exception as e: st.error(f"Lỗi Binning: {e}")
-            elif "Grouping" in gb_type and not pd.api.types.is_numeric_dtype(df_active[gb_col]):
-                unique_vals=sorted(cur_df2[gb_col].dropna().unique().tolist())
-                st.markdown(f"**Giá trị duy nhất ({len(unique_vals)}):** {', '.join(str(v) for v in unique_vals[:20])}")
-                gb_map_raw=st.text_area("Mapping (mỗi dòng: giá_trị_gốc → nhóm_mới)",
-                    placeholder="Hà Nội → Miền Bắc\nTP.HCM → Miền Nam",key="gb_map")
-                gb_new_col2=st.text_input("Tên cột mới",value=f"{gb_col}_group",key="gb_new_col2")
-                if st.button("✅ Áp dụng Grouping",key="do_group"):
-                    try:
-                        mapping={}
-                        for line in gb_map_raw.strip().split("\n"):
-                            if "→" in line:
-                                k,v=line.split("→",1); mapping[k.strip()]=v.strip()
-                        cur_df2[gb_new_col2]=cur_df2[gb_col].map(mapping).fillna(cur_df2[gb_col])
-                        new_json=_df_to_json(cur_df2)
-                        st.session_state["prep_transforms"][prep_target].append((f"Grouping {gb_col}→{gb_new_col2}",new_json))
-                        st.success(f"✅ Đã tạo cột '{gb_new_col2}' với {cur_df2[gb_new_col2].nunique()} nhóm"); st.rerun()
-                    except Exception as e: st.error(f"Lỗi Grouping: {e}")
-            else:
-                st.info("Binning chỉ áp dụng cho cột số. Grouping chỉ áp dụng cho cột text.")
 
     if ws==3:
         st.markdown("<br>",unsafe_allow_html=True)
@@ -2228,7 +2272,7 @@ if ws>=4:
         else:
             sec_hdr("📋","Methods Comparison","blue")
             cmp_df=pd.DataFrame(results)
-            col_order=["Sheet","Method","Accuracy","Precision","Recall","F1-Score","AUC","R²","RMSE","K","Silhouette","Rules found","Train rows","Test rows","Rows"]
+            col_order=["Sheet","Method","Accuracy","Precision","Recall","F1-Score","AUC","R²","RMSE","K","Silhouette","Rules found","Train rows","Validation rows","Rows"]
             col_order=[c for c in col_order if c in cmp_df.columns]
             cmp_df=cmp_df[col_order]; st.dataframe(_sanitize_df(cmp_df),width='stretch')
             if "F1-Score" in cmp_df.columns:
@@ -2316,22 +2360,44 @@ if ws>=4:
         if not results_exp: st.info("Run models in Step 3 first.")
         else:
             cmp_df2=pd.DataFrame(results_exp)
-            exp_sheets={"Comparison Table":cmp_df2}
-            for label,df_exp in st.session_state.get("run_exports",{}).items(): exp_sheets[label[:31]]=df_exp
+            exp_sheets={}
+
+            # \u2500\u2500 Sheet 1: Raw Data (Before) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+            raw_sheet = st.session_state["sheets"].get(active_name, raw_df)
+            exp_sheets["\ud83d\udccb Raw Data (Before)"] = _sanitize_df(raw_sheet.copy())
+
+            # \u2500\u2500 Sheet 2: Cleaned Data (After) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+            _prep_stack4 = st.session_state["prep_transforms"].get(active_name, [])
+            if _prep_stack4:
+                cleaned_df = _json_to_df(_prep_stack4[-1][1])
+                exp_sheets["\u2705 Cleaned Data (After)"] = _sanitize_df(cleaned_df)
+            else:
+                exp_sheets["\u2705 Cleaned Data (same as raw)"] = _sanitize_df(raw_sheet.copy())
+
+            # \u2500\u2500 Sheet 3+: K\u1ebft qu\u1ea3 model \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+            exp_sheets["\ud83d\udcca Comparison Table"] = cmp_df2
+            for label,df_exp in st.session_state.get("run_exports",{}).items():
+                exp_sheets[label[:31]]=df_exp
             if st.session_state.get("comparison_ai"):
-                exp_sheets["AI Explanation"]=pd.DataFrame({"AI Explanation":st.session_state["comparison_ai"].split("\n")})
+                exp_sheets["\ud83e\udd16 AI Explanation"]=pd.DataFrame({"AI Explanation":st.session_state["comparison_ai"].split("\n")})
             if st.session_state.get("ai_blueprint"):
-                exp_sheets["AI Blueprint"]=pd.DataFrame({"AI Blueprint":st.session_state["ai_blueprint"].split("\n")})
-            # Feature importance tables
+                exp_sheets["\ud83d\udcdd AI Blueprint"]=pd.DataFrame({"AI Blueprint":st.session_state["ai_blueprint"].split("\n")})
             for mname, fi_df in st.session_state.get("_fi_tables",{}).items():
-                exp_sheets[f"FI_{mname[:25]}"]=fi_df
-            for sname in exp_sheets:
-                df_p=exp_sheets[sname]
-                st.markdown(f'<div style="background:#0f1629;border:1px solid #1f2937;border-radius:7px;padding:6px 12px;margin-bottom:4px;font-size:.79rem;color:#9ca3af">📑 <b style="color:#60a5fa">{sname}</b> — {df_p.shape[0]:,} rows × {df_p.shape[1]} cols</div>',unsafe_allow_html=True)
+                exp_sheets[f"FI_{mname[:22]}"]=fi_df
+
+            # Preview c\u00e1c sheet s\u1ebd xu\u1ea5t
+            for sname, df_p in exp_sheets.items():
+                icon = "\U0001f7e2" if "Cleaned" in sname or "After" in sname else ("\U0001f534" if "Raw" in sname or "Before" in sname else "\U0001f4d1")
+                st.markdown(
+                    f'<div style="background:#0f1629;border:1px solid #1f2937;border-radius:7px;'
+                    f'padding:6px 12px;margin-bottom:4px;font-size:.79rem;color:#9ca3af">'
+                    f'{icon} <b style="color:#60a5fa">{sname}</b> \u2014 {df_p.shape[0]:,} rows \xd7 {df_p.shape[1]} cols</div>',
+                    unsafe_allow_html=True)
+
             st.markdown("<br>",unsafe_allow_html=True)
             figures_dict = st.session_state.get("_run_figures", {})
             excel_bytes=export_to_excel(exp_sheets, figures_dict=figures_dict if figures_dict else None)
-            st.download_button("⬇️ Download Full Results + Charts (Excel)",data=excel_bytes,
+            st.download_button("\u2b07\ufe0f Download Full Results + Charts (Excel)",data=excel_bytes,
                 file_name=f"DataMineAI_{active_name[:20].replace(' ','_')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
