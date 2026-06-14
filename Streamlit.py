@@ -722,7 +722,8 @@ def _dark_fig(w=6,h=4):
 
 def run_classification(method,df,target,features,test_size,balance):
     df_enc=encode_df(df[features+[target]].dropna())
-    X=StandardScaler().fit_transform(df_enc[features].values); y=df_enc[target].values
+    scaler=StandardScaler()
+    X=scaler.fit_transform(df_enc[features].values); y=df_enc[target].values
     if balance=="Random Oversampling":
         X,y=RandomOverSampler(random_state=42).fit_resample(X,y); st.info("✅ Applied Random Oversampling.")
     elif balance=="SMOTE":
@@ -806,11 +807,27 @@ def run_classification(method,df,target,features,test_size,balance):
     if method=="Classification Trees":
         with st.expander("🌿 Decision Tree Rules",expanded=False):
             st.code(export_text(mdl,feature_names=features,max_depth=4),language="")
+
+    # Lưu model + metadata để dùng cho Predict New Data
+    st.session_state.setdefault("_trained_models",{})[method]={
+        "model":mdl,"scaler":scaler,"features":features,"target":target,
+        "type":"classification","classes":list(np.unique(y)),
+        "label_encoder": st.session_state.get("enc_mapping",{}).get(st.session_state.get("active_sheet",""),{})
+    }
+    # Lưu train/val data
+    tr_df=pd.DataFrame(X_tr,columns=[f"{c}_scaled" for c in features])
+    tr_df[target]=y_tr
+    te_df=pd.DataFrame(X_te,columns=[f"{c}_scaled" for c in features])
+    te_df[target+"_actual"]=y_te; te_df[target+"_predicted"]=y_pred
+    st.session_state.setdefault("_split_data",{})[method]={
+        "train":tr_df,"validation":te_df,"features":features,"target":target
+    }
     return metrics,mdl,X_te,y_te,y_pred
 
 def run_regression(method,df,target,features,test_size):
     df_enc=encode_df(df[features+[target]].dropna())
-    X=StandardScaler().fit_transform(df_enc[features].values); y=df_enc[target].values
+    scaler_r=StandardScaler()
+    X=scaler_r.fit_transform(df_enc[features].values); y=df_enc[target].values
     X_tr,X_te,y_tr,y_te=train_test_split(X,y,test_size=test_size,random_state=42)
     mdl=LinearRegression() if method=="Linear Regression" else MLPRegressor(max_iter=500,random_state=42)
     mdl.fit(X_tr,y_tr); y_pred=mdl.predict(X_te)
@@ -837,6 +854,14 @@ def run_regression(method,df,target,features,test_size):
         ax2.axhline(0,color='#ef4444',linestyle='--',lw=1.5)
         ax2.set_xlabel("Predicted",color='#9ca3af'); ax2.set_ylabel("Residual",color='#9ca3af')
         ax2.set_title("Residual Plot",color='#e5e7eb'); fig_to_st(fig2)
+    # Lưu model + split data
+    st.session_state.setdefault("_trained_models",{})[method]={
+        "model":mdl,"scaler":scaler_r,"features":features,"target":target,"type":"regression"
+    }
+    tr_df2=pd.DataFrame(X_tr,columns=[f"{c}_scaled" for c in features]); tr_df2[target]=y_tr
+    te_df2=pd.DataFrame(X_te,columns=[f"{c}_scaled" for c in features])
+    te_df2[target+"_actual"]=y_te; te_df2[target+"_predicted"]=y_pred
+    st.session_state.setdefault("_split_data",{})[method]={"train":tr_df2,"validation":te_df2,"features":features,"target":target}
     return metrics
 
 def run_clustering(method,df,features,n_clusters):
@@ -1452,7 +1477,7 @@ DEFAULTS={
     "prep_transforms":{},"prep_log":{},"enc_mapping":{},"user_goal":"",
     "selected_methods":[],"run_results":[],"run_exports":{},"comparison_ai":"",
     "gemini_key":"","openrouter_key":"","ai_vn":"","rec_applied":False,
-    "chat_messages":[],"_run_figures":{},"_file_cache":{},
+    "chat_messages":[], "_trained_models":{}, "_split_data":{},"_run_figures":{},"_file_cache":{},
 }
 for k,v in DEFAULTS.items():
     if k not in st.session_state: st.session_state[k]=v
@@ -2153,6 +2178,8 @@ if ws>=3:
             st.session_state["run_results"]=[]; st.session_state["run_exports"]={}
             st.session_state["_run_figures"]={}
             st.session_state["_fi_tables"]={}
+            st.session_state["_trained_models"]={}
+            st.session_state["_split_data"]={}
             for method in sel:
                 group=METHODS[method]["group"]
                 sec_hdr("▶","Running: "+method,"purple")
@@ -2329,6 +2356,70 @@ if ws>=4:
                             data=fi_csv, file_name=f"{mname}_feature_importance.csv",
                             mime="text/csv", key=f"dl_fi_{mname}")
 
+            st.markdown("---")
+            sec_hdr("🔮","Predict New Data","purple",subtitle="Download template, nhap data moi, upload de du bao")
+            trained = st.session_state.get("_trained_models",{})
+            if not trained:
+                st.info("Chua co model nao duoc train. Chay model o Step 3 truoc.")
+            else:
+                _pm_col, _pu_col = st.columns([2,3])
+                with _pm_col:
+                    pred_model_name = st.selectbox("Chon model de du bao",list(trained.keys()),key="pred_model_sel")
+                with _pu_col:
+                    # Download template
+                    _mdl_info = trained[pred_model_name]
+                    _tpl_df = pd.DataFrame(columns=_mdl_info["features"])
+                    _tpl_df.loc[0] = [""] * len(_mdl_info["features"])
+                    _tpl_buf = io.BytesIO()
+                    with pd.ExcelWriter(_tpl_buf, engine="openpyxl") as _w:
+                        _tpl_df.to_excel(_w, sheet_name="Input", index=False)
+                    st.download_button(
+                        "Download Template (Excel)",
+                        data=_tpl_buf.getvalue(),
+                        file_name=f"template_{pred_model_name[:20].replace(' ','_')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="dl_template"
+                    )
+
+                pred_file = st.file_uploader("Upload data moi de du bao (.xlsx / .csv)",
+                    type=["xlsx","csv"], key="pred_upload")
+
+                if pred_file:
+                    try:
+                        if pred_file.name.endswith(".csv"):
+                            _new_df = pd.read_csv(pred_file)
+                        else:
+                            _new_df = pd.read_excel(pred_file)
+
+                        _feats = _mdl_info["features"]
+                        _missing_cols = [c for c in _feats if c not in _new_df.columns]
+                        if _missing_cols:
+                            st.error(f"Thieu cot: {_missing_cols}. Vui long dung dung template.")
+                        else:
+                            _X_new = _mdl_info["scaler"].transform(_new_df[_feats].fillna(0).values)
+                            _preds = _mdl_info["model"].predict(_X_new)
+                            _result_df = _new_df[_feats].copy()
+                            _result_df["Prediction"] = _preds
+                            if _mdl_info["type"] == "classification" and hasattr(_mdl_info["model"],"predict_proba"):
+                                _proba = _mdl_info["model"].predict_proba(_X_new)
+                                _result_df["Confidence"] = _proba.max(axis=1).round(4)
+                            st.success(f"Du bao {len(_result_df)} dong thanh cong!")
+                            st.dataframe(_sanitize_df(_result_df), width='stretch')
+                            # Download result
+                            _res_buf = io.BytesIO()
+                            with pd.ExcelWriter(_res_buf, engine="openpyxl") as _rw:
+                                _sanitize_df(_result_df).to_excel(_rw, sheet_name="Predictions", index=False)
+                            st.download_button(
+                                "Download Ket qua Du bao (Excel)",
+                                data=_res_buf.getvalue(),
+                                file_name=f"predictions_{pred_model_name[:20].replace(' ','_')}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                key="dl_predictions"
+                            )
+                    except Exception as _pe:
+                        st.error(f"Loi du bao: {_pe}")
+
+
             st.markdown("---"); sec_hdr("🤖","AI Analysis of Results","purple")
             if st.button("🔎 Generate AI Explanation",type="primary",key="gaie"):
                 results_text=cmp_df.to_string(index=False)
@@ -2375,6 +2466,12 @@ if ws>=4:
                 exp_sheets["Cleaned Data (same as raw)"] = _sanitize_df(raw_sheet.copy())
 
             # \u2500\u2500 Sheet 3+: K\u1ebft qu\u1ea3 model \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+            # -- Train / Validation data per model
+            for mname, split in st.session_state.get("_split_data",{}).items():
+                short = mname[:20].replace(" ","_")
+                exp_sheets[f"Train_{short}"] = _sanitize_df(split["train"].copy())
+                exp_sheets[f"Val_{short}"] = _sanitize_df(split["validation"].copy())
+
             exp_sheets["Comparison Table"] = cmp_df2
             for label,df_exp in st.session_state.get("run_exports",{}).items():
                 exp_sheets[label[:31]]=df_exp
@@ -2395,16 +2492,18 @@ if ws>=4:
                     f'<span style="color:{_clr};font-weight:700;margin-right:6px">[{_tag}]</span>'
                     f'<b style="color:#60a5fa">{sname}</b> - {_info}</div>',
                     unsafe_allow_html=True)
+
+            st.markdown("<br>",unsafe_allow_html=True)
             figures_dict = st.session_state.get("_run_figures", {})
             excel_bytes=export_to_excel(exp_sheets, figures_dict=figures_dict if figures_dict else None)
-            st.download_button("\u2b07\ufe0f Download Full Results + Charts (Excel)",data=excel_bytes,
+            st.download_button("Download Full Results + Charts (Excel)",data=excel_bytes,
                 file_name=f"DataMineAI_{active_name[:20].replace(' ','_')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
     st.markdown("---")
-    if st.button("\U0001f504 Start New Analysis (reset all)"):
+    if st.button("Start New Analysis (reset all)"):
         for key2 in ["wizard_step","ai_blueprint","prep_transforms","prep_log","enc_mapping",
-                     "user_goal","selected_methods","run_results","run_exports","comparison_ai","ai_vn","chat_messages","_run_figures","_fi_tables"]:
+                     "user_goal","selected_methods","run_results","run_exports","comparison_ai","ai_vn","chat_messages","_run_figures","_fi_tables","_trained_models","_split_data"]:
             if isinstance(DEFAULTS.get(key2),dict): st.session_state[key2]={}
             elif isinstance(DEFAULTS.get(key2),list): st.session_state[key2]=[]
             else: st.session_state[key2]=DEFAULTS.get(key2,"")
