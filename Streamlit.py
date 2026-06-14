@@ -980,78 +980,85 @@ def run_classification(method,df,target,features,test_size,balance,split_seed=42
         "type":"classification","classes":list(np.unique(y)),
         "label_encoder": st.session_state.get("enc_mapping",{}).get(st.session_state.get("active_sheet",""),{})
     }
-    # Lưu Score tables theo format Solver Analytics
-    _tr_correct2=int(np.diag(tr_cm).sum()); _val_correct2=int(np.diag(cm).sum())
-    _tr_prec2=precision_score(y_tr,y_tr_pred,zero_division=0)
-    # Training Score table
-    _tr_score=pd.DataFrame([
-        ["Confusion Matrix","",""],
-        [f"Actual\\Predicted","0","1"],
-        ["0",int(tr_cm[0,0]),int(tr_cm[0,1])],
-        ["1",int(tr_cm[1,0]),int(tr_cm[1,1])],
-        ["","",""],
-        ["Error Report","",""],
-        ["Class","# Cases","# Errors","% Error"],
-        ["0",int(sum(y_tr==0)),int(tr_cm[0,1]),round(100*tr_cm[0,1]/max(1,sum(y_tr==0)),5)],
-        ["1",int(sum(y_tr==1)),int(tr_cm[1,0]),round(100*tr_cm[1,0]/max(1,sum(y_tr==1)),5)],
-        ["Overall",len(y_tr),int((y_tr_pred!=y_tr).sum()),round(100*(y_tr_pred!=y_tr).mean(),5)],
-        ["","",""],
-        ["Metrics","Value",""],
-        ["Accuracy (#correct)",_tr_correct2,""],
-        ["Accuracy (%correct)",round(100*_tr_correct2/len(y_tr),5),""],
-        ["Specificity",round(tr_spec,7),""],
-        ["Sensitivity (Recall)",round(tr_sens,7),""],
-        ["Precision",round(_tr_prec2,7),""],
-        ["F1 score",round(tr_f1,7),""],
-        ["Success Class",1,""],
-    ])
-    # Validation Score table
-    _proba_store=mdl.predict_proba(X_te) if hasattr(mdl,"predict_proba") else None
-    _val_det_rows=[["Record ID","Actual","Predicted","PostProb: 0","PostProb: 1"]]
-    for _ri in range(min(len(y_te),100)):
-        _pp0=round(float(_proba_store[_ri,0]),6) if _proba_store is not None else ""
-        _pp1=round(float(_proba_store[_ri,1]),6) if _proba_store is not None else ""
-        _val_det_rows.append([f"Record {_ri+1}",int(y_te[_ri]),int(y_pred[_ri]),_pp0,_pp1])
-    _val_score=pd.DataFrame([
-        ["Confusion Matrix","",""],
-        [f"Actual\\Predicted","0","1"],
-        ["0",int(cm[0,0]),int(cm[0,1])],
-        ["1",int(cm[1,0]),int(cm[1,1])],
-        ["","",""],
-        ["Error Report","",""],
-        ["Class","# Cases","# Errors","% Error"],
-        ["0",int(sum(y_te==0)),int(cm[0,1]),round(100*cm[0,1]/max(1,sum(y_te==0)),5)],
-        ["1",int(sum(y_te==1)),int(cm[1,0]),round(100*cm[1,0]/max(1,sum(y_te==1)),5)],
-        ["Overall",len(y_te),int((y_pred!=y_te).sum()),round(100*(y_pred!=y_te).mean(),5)],
-        ["","",""],
-        ["Metrics","Value","Definition"],
-        ["Accuracy (#correct)",_val_correct2,""],
-        ["Accuracy (%correct)",round(100*_val_correct2/len(y_te),5),""],
-        ["Specificity",round(val_spec,7),"TN / (TN + FP) — Ti le du bao dung class am"],
-        ["Sensitivity (Recall)",round(rec,7),"TP / (TP + FN) — Ti le phat hien dung class duong"],
-        ["Precision",round(prec,7),"TP / (TP + FP) — Do chinh xac khi du bao duong"],
-        ["F1 score",round(f1,7),"2 x Precision x Recall / (Precision + Recall)"],
-        ["AUC (ROC)",round(auc,5) if auc else "N/A","Area Under ROC Curve — 1.0 = hoan hao"],
-        ["Success Class",1,""],
-    ])
-    # Decile/Lift table
-    _decile_export=[]
-    if _proba_store is not None:
-        try:
-            _p1=_proba_store[:,1]; _si=_p1.argsort()[::-1]
-            _n2=len(y_te); _gr2=y_te.mean()
-            for _d in range(1,11):
-                _s2=int((_d-1)*_n2/10); _e2=int(_d*_n2/10)
-                _yd=y_te[_si[_s2:_e2]]
-                _decile_export.append([f"Decile {_d}",round(float(_yd.mean()),6),round(float(_yd.std()),6),int(_yd.min()),int(_yd.max()),_d,_d,round(float(_yd.mean())/_gr2,4) if _gr2>0 else 0])
-        except Exception: pass
-    _lift_df=pd.DataFrame(_decile_export,columns=["Decile","Mean","Std.Dev.","Min.","Max.","ID","Decile (ID)","Decile/Global Mean"]) if _decile_export else pd.DataFrame()
-    _val_det_df=pd.DataFrame(_val_det_rows[1:],columns=_val_det_rows[0]) if len(_val_det_rows)>1 else pd.DataFrame()
-    st.session_state.setdefault("_split_data",{})[method]={
-        "training_score":_tr_score,"validation_score":_val_score,
-        "lift":_lift_df,"validation_details":_val_det_df,
-        "features":features,"target":target,"type":"classification"
-    }
+    # Luu Score tables (wrapped in try/except for safety)
+    try:
+        _tr_c=int(np.diag(tr_cm).sum()); _val_c=int(np.diag(cm).sum())
+        _tr_p2=precision_score(y_tr,y_tr_pred,zero_division=0)
+        def _safe_cm_val(matrix, r, c):
+            try: return int(matrix[r,c])
+            except: return 0
+        def _safe_class_n(y_arr, cls):
+            try: return int(sum(y_arr==cls))
+            except: return 0
+        _tr_score=pd.DataFrame([
+            ["Confusion Matrix","",""],
+            ["Actual/Predicted","0","1"],
+            ["0",_safe_cm_val(tr_cm,0,0),_safe_cm_val(tr_cm,0,1)],
+            ["1",_safe_cm_val(tr_cm,1,0),_safe_cm_val(tr_cm,1,1)],
+            ["","",""],
+            ["Error Report","",""],
+            ["Class","# Cases","# Errors"],
+            ["0",_safe_class_n(y_tr,0),_safe_cm_val(tr_cm,0,1)],
+            ["1",_safe_class_n(y_tr,1),_safe_cm_val(tr_cm,1,0)],
+            ["Overall",len(y_tr),int((y_tr_pred!=y_tr).sum())],
+            ["","",""],
+            ["Metrics","Value",""],
+            ["Accuracy (#correct)",_tr_c,""],
+            ["Accuracy (%correct)",round(100*_tr_c/max(1,len(y_tr)),5),""],
+            ["Specificity",round(tr_spec,6),""],
+            ["Sensitivity (Recall)",round(tr_sens,6),""],
+            ["Precision",round(_tr_p2,6),""],
+            ["F1 score",round(tr_f1,6),""],
+        ])
+        _proba_s=mdl.predict_proba(X_te) if hasattr(mdl,"predict_proba") else None
+        _val_score=pd.DataFrame([
+            ["Confusion Matrix","",""],
+            ["Actual/Predicted","0","1"],
+            ["0",_safe_cm_val(cm,0,0),_safe_cm_val(cm,0,1)],
+            ["1",_safe_cm_val(cm,1,0),_safe_cm_val(cm,1,1)],
+            ["","",""],
+            ["Error Report","",""],
+            ["Class","# Cases","# Errors"],
+            ["0",_safe_class_n(y_te,0),_safe_cm_val(cm,0,1)],
+            ["1",_safe_class_n(y_te,1),_safe_cm_val(cm,1,0)],
+            ["Overall",len(y_te),int((y_pred!=y_te).sum())],
+            ["","",""],
+            ["Metrics","Value","Definition"],
+            ["Accuracy (#correct)",_val_c,""],
+            ["Accuracy (%correct)",round(100*_val_c/max(1,len(y_te)),5),""],
+            ["Specificity",round(val_spec,6),"TN/(TN+FP)"],
+            ["Sensitivity (Recall)",round(rec,6),"TP/(TP+FN)"],
+            ["Precision",round(prec,6),"TP/(TP+FP)"],
+            ["F1 score",round(f1,6),"2*P*R/(P+R)"],
+            ["AUC (ROC)",round(auc,5) if auc else "N/A","Area Under ROC Curve"],
+        ])
+        _det_rows=[]
+        for _ri in range(min(len(y_te),100)):
+            _pp0=round(float(_proba_s[_ri,0]),6) if _proba_s is not None else ""
+            _pp1=round(float(_proba_s[_ri,1]),6) if _proba_s is not None else ""
+            _det_rows.append([f"Record {_ri+1}",int(y_te[_ri]),int(y_pred[_ri]),_pp0,_pp1])
+        _det_df=pd.DataFrame(_det_rows,columns=["Record ID","Actual","Predicted","PostProb: 0","PostProb: 1"]) if _det_rows else pd.DataFrame()
+        _decile_exp=[]
+        if _proba_s is not None:
+            try:
+                _p1=_proba_s[:,1]; _si=_p1.argsort()[::-1]; _n2=len(y_te); _gr2=y_te.mean()
+                for _d in range(1,11):
+                    _yd=y_te[_si[int((_d-1)*_n2/10):int(_d*_n2/10)]]
+                    _decile_exp.append([f"Decile {_d}",round(float(_yd.mean()),6),round(float(_yd.std()),6),int(_yd.min()),int(_yd.max()),_d,round(float(_yd.mean())/_gr2,4) if _gr2>0 else 0])
+            except Exception: pass
+        _lift_df=pd.DataFrame(_decile_exp,columns=["Decile","Mean","Std.Dev.","Min.","Max.","ID","Lift"]) if _decile_exp else pd.DataFrame()
+        st.session_state.setdefault("_split_data",{})[method]={
+            "training_score":_tr_score,"validation_score":_val_score,
+            "lift":_lift_df,"validation_details":_det_df,
+            "features":features,"target":target,"type":"classification"
+        }
+    except Exception as _es:
+        st.session_state.setdefault("_split_data",{})[method]={
+            "training_score":pd.DataFrame([["Accuracy",round(acc,4)],["F1",round(f1,4)]]),
+            "validation_score":pd.DataFrame([["Accuracy",round(acc,4)],["F1",round(f1,4)],["AUC",round(auc,4) if auc else "N/A"]]),
+            "lift":pd.DataFrame(),"validation_details":pd.DataFrame(),
+            "features":features,"target":target,"type":"classification"
+        }
     return metrics,mdl,X_te,y_te,y_pred
 
 def run_regression(method,df,target,features,test_size,split_seed=42):
