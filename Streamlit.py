@@ -720,7 +720,7 @@ def _dark_fig(w=6,h=4):
     for sp in ax.spines.values(): sp.set_edgecolor('#374151')
     return fig,ax
 
-def run_classification(method,df,target,features,test_size,balance):
+def run_classification(method,df,target,features,test_size,balance,split_seed=42):
     df_enc=encode_df(df[features+[target]].dropna())
     scaler=StandardScaler()
     X=scaler.fit_transform(df_enc[features].values); y=df_enc[target].values
@@ -729,7 +729,7 @@ def run_classification(method,df,target,features,test_size,balance):
     elif balance=="SMOTE":
         try: X,y=SMOTE(random_state=42).fit_resample(X,y); st.info("✅ Applied SMOTE.")
         except Exception as e: st.warning(f"SMOTE skipped: {e}")
-    X_tr,X_te,y_tr,y_te=train_test_split(X,y,test_size=test_size,random_state=42)
+    X_tr,X_te,y_tr,y_te=train_test_split(X,y,test_size=test_size,random_state=split_seed)
     models={
         "Logistic Regression":LogisticRegression(max_iter=1000),
         "Linear Discriminant Analysis (LDA)":LinearDiscriminantAnalysis(),
@@ -824,11 +824,11 @@ def run_classification(method,df,target,features,test_size,balance):
     }
     return metrics,mdl,X_te,y_te,y_pred
 
-def run_regression(method,df,target,features,test_size):
+def run_regression(method,df,target,features,test_size,split_seed=42):
     df_enc=encode_df(df[features+[target]].dropna())
     scaler_r=StandardScaler()
     X=scaler_r.fit_transform(df_enc[features].values); y=df_enc[target].values
-    X_tr,X_te,y_tr,y_te=train_test_split(X,y,test_size=test_size,random_state=42)
+    X_tr,X_te,y_tr,y_te=train_test_split(X,y,test_size=test_size,random_state=split_seed)
     mdl=LinearRegression() if method=="Linear Regression" else MLPRegressor(max_iter=500,random_state=42)
     mdl.fit(X_tr,y_tr); y_pred=mdl.predict(X_te)
     mse=mean_squared_error(y_te,y_pred); r2=r2_score(y_te,y_pred); residuals=y_te-y_pred
@@ -2128,7 +2128,7 @@ if ws>=3:
             _ts_c1, _ts_c2 = st.columns([4, 1])
             with _ts_c1:
                 test_size_pct = st.slider(
-                    "Validation split %", 5, 50,
+                    "Validation split %", 5, 95,
                     st.session_state.get("_test_split_pct", 20),
                     step=1,
                     help="Kéo để chọn % dữ liệu dùng để validation. VD: 20% = train 80%, validation 20%.",
@@ -2145,6 +2145,25 @@ if ws>=3:
                     f'</div>', unsafe_allow_html=True
                 )
             test_size = test_size_pct / 100
+
+            # Random seed option
+            _seed_c1, _seed_c2 = st.columns([3, 2])
+            with _seed_c1:
+                _use_random = st.checkbox("Random split (khong co seed co dinh)",
+                    value=st.session_state.get("_use_random_seed", False), key="_rnd_seed_chk",
+                    help="Tick = moi lan chay chia ngau nhien khac nhau. Untick = ket qua on dinh (seed=42).")
+            st.session_state["_use_random_seed"] = _use_random
+            _split_seed = None if _use_random else 42
+            with _seed_c2:
+                if not _use_random:
+                    _custom_seed = st.number_input("Seed", 0, 9999, 42, key="_custom_seed",
+                        help="So seed de tái tao ket qua.", label_visibility="visible")
+                    _split_seed = int(_custom_seed)
+                else:
+                    import random as _rnd_mod
+                    st.markdown('<div style="font-size:.75rem;color:#f59e0b;padding:8px 0">Seed: ngau nhien moi lan</div>',
+                        unsafe_allow_html=True)
+
             if has_clf:
                 balance_opt=st.selectbox("Class balancing",["None","Random Oversampling","SMOTE"],
                     help="None: không cân bằng | Oversampling: nhân bản dữ liệu thiểu số | SMOTE: tổng hợp điểm dữ liệu mới")
@@ -2186,14 +2205,14 @@ if ws>=3:
                 try:
                     if group=="classification":
                         if not feature_cols: st.error(f"{method}: select feature columns."); continue
-                        metrics,mdl,X_te,y_te,y_pred=run_classification(method,df_active,target_col,feature_cols,test_size,balance_opt)
+                        metrics,mdl,X_te,y_te,y_pred=run_classification(method,df_active,target_col,feature_cols,test_size,balance_opt,split_seed=_split_seed)
                         st.session_state["run_results"].append(metrics)
                         pred_df=df_active.iloc[:len(y_te)][feature_cols].copy()
                         pred_df["Actual"]=y_te; pred_df["Predicted"]=y_pred
                         st.session_state["run_exports"][f"{method}_predictions"]=pred_df
                     elif group=="prediction":
                         if not feature_cols: st.error(f"{method}: select feature columns."); continue
-                        metrics=run_regression(method,df_active,target_col,feature_cols,test_size)
+                        metrics=run_regression(method,df_active,target_col,feature_cols,test_size,split_seed=_split_seed)
                         st.session_state["run_results"].append(metrics)
                     elif group=="association":
                         if "Cluster" in method:
