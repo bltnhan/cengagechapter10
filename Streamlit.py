@@ -2387,14 +2387,14 @@ if ws>=4:
 
             # Preview c\u00e1c sheet s\u1ebd xu\u1ea5t
             for sname, df_p in exp_sheets.items():
-                icon = "\U0001f7e2" if "Cleaned" in sname or "After" in sname else ("\U0001f534" if "Raw" in sname or "Before" in sname else "\U0001f4d1")
+                _clr = "#10b981" if ("Cleaned" in sname or "After" in sname) else ("#ef4444" if ("Raw" in sname or "Before" in sname) else "#60a5fa")
+                _tag = "CLEAN" if ("Cleaned" in sname or "After" in sname) else ("RAW" if ("Raw" in sname or "Before" in sname) else "DATA")
+                _info = f"{df_p.shape[0]:,} rows x {df_p.shape[1]} cols"
                 st.markdown(
-                    f'<div style="background:#0f1629;border:1px solid #1f2937;border-radius:7px;'
-                    f'padding:6px 12px;margin-bottom:4px;font-size:.79rem;color:#9ca3af">'
-                    f'{icon} <b style="color:#60a5fa">{sname}</b> \u2014 {df_p.shape[0]:,} rows \xd7 {df_p.shape[1]} cols</div>',
+                    f'<div style="background:#0f1629;border:1px solid #1f2937;border-radius:7px;padding:6px 12px;margin-bottom:4px;font-size:.79rem;color:#9ca3af">'
+                    f'<span style="color:{_clr};font-weight:700;margin-right:6px">[{_tag}]</span>'
+                    f'<b style="color:#60a5fa">{sname}</b> - {_info}</div>',
                     unsafe_allow_html=True)
-
-            st.markdown("<br>",unsafe_allow_html=True)
             figures_dict = st.session_state.get("_run_figures", {})
             excel_bytes=export_to_excel(exp_sheets, figures_dict=figures_dict if figures_dict else None)
             st.download_button("\u2b07\ufe0f Download Full Results + Charts (Excel)",data=excel_bytes,
