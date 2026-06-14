@@ -1252,11 +1252,10 @@ def export_to_excel(results_dict, figures_dict=None):
     with pd.ExcelWriter(buf, engine="openpyxl") as writer:
         for name, df in results_dict.items():
             df.to_excel(writer, sheet_name=str(name)[:31], index=False)
-            # Apply formatting for Score sheets
-            if any(k in name for k in ["TrainScore","ValScore","LiftChart"]):
-                try:
-                    _fmt_score_sheet(writer.sheets[str(name)[:31]], sheet_name=name)
-                except Exception: pass
+            # Apply formatting to ALL sheets
+            try:
+                _fmt_score_sheet(writer.sheets[str(name)[:31]], sheet_name=name)
+            except Exception: pass
 
         # Nhúng biểu đồ vào sheet riêng "Charts"
         if figures_dict:
@@ -2888,60 +2887,4 @@ if ws>=4:
             cmp_df2=pd.DataFrame(results_exp)
             exp_sheets={}
 
-            # \u2500\u2500 Sheet 1: Raw Data (Before) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-            raw_sheet = st.session_state["sheets"].get(active_name, raw_df)
-            exp_sheets["Raw Data (Before)"] = _sanitize_df(raw_sheet.copy())
-
-            # \u2500\u2500 Sheet 2: Cleaned Data (After) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-            _prep_stack4 = st.session_state["prep_transforms"].get(active_name, [])
-            if _prep_stack4:
-                cleaned_df = _json_to_df(_prep_stack4[-1][1])
-                exp_sheets["Cleaned Data (After)"] = _sanitize_df(cleaned_df)
-            else:
-                exp_sheets["Cleaned Data (same as raw)"] = _sanitize_df(raw_sheet.copy())
-
-            # -- Train / Validation data per model
-            for mname, split in st.session_state.get("_split_data",{}).items():
-                short = mname[:18].replace(" ","_")
-                if "training_score" in split:
-                    exp_sheets[f"{short}_TrainScore"] = _sanitize_df(split["training_score"].copy())
-                    exp_sheets[f"{short}_ValScore"] = _sanitize_df(split["validation_score"].copy())
-                    if not split.get("lift",pd.DataFrame()).empty:
-                        exp_sheets[f"{short}_LiftChart"] = _sanitize_df(split["lift"].copy())
-                    if not split.get("validation_details",pd.DataFrame()).empty:
-                        _vdet=split["validation_details"].copy()
-                        if len(_vdet)>200: _vdet=_vdet.head(200)
-                        exp_sheets[f"{short}_ValDetails"] = _sanitize_df(_vdet)
-
-            # -- Ket qua model
-            exp_sheets["Comparison Table"] = cmp_df2
-            for label,df_exp in st.session_state.get("run_exports",{}).items():
-                exp_sheets[label[:31]]=df_exp
-            if st.session_state.get("comparison_ai"):
-                exp_sheets["AI Explanation"]=pd.DataFrame({"AI Explanation":st.session_state["comparison_ai"].split("\n")})
-            if st.session_state.get("ai_blueprint"):
-                exp_sheets["AI Blueprint"]=pd.DataFrame({"AI Blueprint":st.session_state["ai_blueprint"].split("\n")})
-            for mname, fi_df in st.session_state.get("_fi_tables",{}).items():
-                exp_sheets[f"FI_{mname[:22]}"]=fi_df
-            for sname, df_p in exp_sheets.items():
-                _clr = "#10b981" if ("Cleaned" in sname or "After" in sname) else ("#ef4444" if ("Raw" in sname or "Before" in sname) else "#60a5fa")
-                _tag = "CLEAN" if ("Cleaned" in sname or "After" in sname) else ("RAW" if ("Raw" in sname or "Before" in sname) else "DATA")
-                _info = f'{df_p.shape[0]:,} rows x {df_p.shape[1]} cols'
-                st.markdown(
-                    f'<div style="background:#0f1629;border:1px solid #1f2937;border-radius:7px;padding:6px 12px;margin-bottom:4px;font-size:.79rem;color:#9ca3af">'
-                    f'<span style="color:{_clr};font-weight:700;margin-right:6px">[{_tag}]</span>'
-                    f'<b style="color:#60a5fa">{sname}</b> - {_info}</div>',
-                    unsafe_allow_html=True)
-            st.markdown("<br>",unsafe_allow_html=True)
-            figures_dict = st.session_state.get("_run_figures", {})
-            excel_bytes=export_to_excel(exp_sheets, figures_dict=figures_dict if figures_dict else None)
-            st.download_button("Download Full Results + Charts (Excel)",data=excel_bytes,
-                file_name=f"DataMineAI_{active_name[:20].replace(' ','_')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
-    st.markdown("---")
-    if st.button("Start New Analysis (reset all)"):
-        for key2 in ["wizard_step","ai_blueprint","prep_transforms","prep_log","enc_mapping",
-                     "user_goal","selected_methods","run_results","run_exports","comparison_ai","ai_vn","chat_messages","_run_figures","_fi_tables","_trained_models","_split_data"]:
-            if isinstance(DEFAULTS.get(key2),dict): st.session_state[key2]={}
-           
+            # \u2500\u2500 Sheet 1: Raw Data (Before) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2
