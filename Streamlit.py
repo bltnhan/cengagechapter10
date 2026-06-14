@@ -419,9 +419,16 @@ def df_summary(df,name=""):
     return "\n".join(lines)
 
 def encode_df(df):
+    """Encode text columns. Nếu cột string là số (từ binning) → giữ nguyên giá trị số thay vì label encode alphabetically."""
     df=df.copy(); le=LabelEncoder()
     for col in df.select_dtypes(include=["object","string"]).columns:
-        df[col]=le.fit_transform(df[col].astype(str))
+        # Thử convert về số trước (binned columns có giá trị "1","2",...,"20")
+        try:
+            numeric_vals = pd.to_numeric(df[col], errors='raise')
+            df[col] = numeric_vals.astype(float)
+        except (ValueError, TypeError):
+            # Không phải số → dùng LabelEncoder bình thường
+            df[col] = le.fit_transform(df[col].astype(str))
     return df
 
 def _fig_to_png(fig):
@@ -782,49 +789,171 @@ def run_classification(method,df,target,features,test_size,balance,split_seed=42
     prec=precision_score(y_te,y_pred,average=avg,zero_division=0)
     rec=recall_score(y_te,y_pred,average=avg,zero_division=0)
     f1=f1_score(y_te,y_pred,average=avg,zero_division=0)
+    # Compute cm EARLY so it's available for metrics dict and all subsequent code
+    cm=confusion_matrix(y_te,y_pred)
+    val_spec=cm[0,0]/(cm[0,0]+cm[0,1]) if cm[0,0]+cm[0,1]>0 else 0
     try:
         auc=roc_auc_score(y_te,mdl.predict_proba(X_te)[:,1] if is_bin else mdl.predict_proba(X_te),
             multi_class="ovr" if not is_bin else "raise",average="weighted" if not is_bin else None)
     except Exception: auc=None
+    # Training metrics
+    y_tr_pred = mdl.predict(X_tr)
+    tr_acc = accuracy_score(y_tr, y_tr_pred)
+    tr_cm = confusion_matrix(y_tr, y_tr_pred)
+    tr_sens = tr_cm[1,1]/(tr_cm[1,0]+tr_cm[1,1]) if (tr_cm[1,0]+tr_cm[1,1])>0 else 0
+    tr_spec = tr_cm[0,0]/(tr_cm[0,0]+tr_cm[0,1]) if (tr_cm[0,0]+tr_cm[0,1])>0 else 0
+    tr_f1 = f1_score(y_tr, y_tr_pred, average=avg, zero_division=0)
+    val_spec = cm[0,0]/(cm[0,0]+cm[0,1]) if cm[0,0]+cm[0,1]>0 else 0
+
     metrics={"Method":method,"Sheet":st.session_state.get("active_sheet",""),
-             "Accuracy":f"{acc:.4f}","Precision":f"{prec:.4f}","Recall":f"{rec:.4f}",
+             "Train_Accuracy":f"{tr_acc:.4f}","Train_Sensitivity":f"{tr_sens:.4f}",
+             "Train_Specificity":f"{tr_spec:.4f}","Train_F1":f"{tr_f1:.4f}",
+             "Val_Accuracy":f"{acc:.4f}","Val_Sensitivity":f"{rec:.4f}",
+             "Val_Specificity":f"{val_spec:.4f}","Precision":f"{prec:.4f}",
              "F1-Score":f"{f1:.4f}","AUC":f"{auc:.4f}" if auc else "N/A",
+             "Accuracy":f"{acc:.4f}","Recall":f"{rec:.4f}",
              "Train rows":len(X_tr),"Validation rows":len(X_te)}
-    c1,c2,c3,c4=st.columns(4)
-    c1.metric("Accuracy",f"{acc:.2%}"); c2.metric("F1",f"{f1:.4f}")
-    c3.metric("AUC",f"{auc:.4f}" if auc else "N/A"); c4.metric("Precision",f"{prec:.4f}")
-    with st.expander("📋 Full classification report",expanded=False):
+
+    # Training Summary (Solver Analytics style)
+    # ── TRAINING: Classification Summary (Solver Analytics format) ──────────
+    def _render_metrics_table(label, n_correct, n_total, specificity, sensitivity, precision, f1, auc_val=None, n_rows=0):
+        _pct = 100*n_correct/n_total if n_total>0 else 0
+        def _bar(v, max_v=1.0):
+            pct=min(100,int(100*v/max_v)) if max_v>0 else 0
+            color="#10b981" if v>=0.8 else ("#f59e0b" if v>=0.6 else "#ef4444")
+            return f'<div style="height:6px;background:#1f2937;border-radius:3px;margin-top:3px"><div style="height:6px;width:{pct}%;background:{color};border-radius:3px"></div></div>'
+        rows_html=""
+        items=[
+            ("Accuracy","#correct",n_correct,"",None),
+            ("Accuracy","%correct",round(_pct,2),"%",_pct/100),
+            ("Specificity","TN/(TN+FP)",round(specificity,4),"",specificity),
+            ("Sensitivity","TP/(TP+FN)",round(sensitivity,4),"",sensitivity),
+            ("Precision","TP/(TP+FP)",round(precision,4),"",precision),
+            ("F1 Score","2*P*R/(P+R)",round(f1,4),"",f1),
+        ]
+        if auc_val: items.append(("AUC","ROC Curve",round(auc_val,4),"",auc_val))
+        for name,formula,val,suffix,bar_val in items:
+            _bar_html=_bar(bar_val) if bar_val is not None else ""
+            rows_html+=f"""<tr>
+              <td style="padding:7px 10px;font-size:12px;font-weight:600;color:#e2e8f0">{name}</td>
+              <td style="padding:7px 10px;font-size:11px;color:#6b7280;font-style:italic">{formula}</td>
+              <td style="padding:7px 10px;font-size:13px;font-weight:800;text-align:right;color:#60a5fa">{val}{suffix}{_bar_html}</td>
+            </tr>"""
+        st.markdown(f'''<table style="width:100%;border-collapse:collapse;background:#0f172a;border-radius:8px;overflow:hidden;border:1px solid #1e293b">
+          <thead><tr>
+            <th style="padding:8px 10px;font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.8px;background:#111827;text-align:left">Metric</th>
+            <th style="padding:8px 10px;font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.8px;background:#111827;text-align:left">Formula</th>
+            <th style="padding:8px 10px;font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.8px;background:#111827;text-align:right">Value</th>
+          </tr></thead>
+          <tbody>{rows_html}</tbody>
+        </table>''', unsafe_allow_html=True)
+        # Return DataFrame for export
+        _rows = [("Accuracy (#correct)",n_correct),("Accuracy (%correct)",round(_pct,5)),
+                 ("Specificity",round(specificity,7)),("Sensitivity (Recall)",round(sensitivity,7)),
+                 ("Precision",round(precision,7)),("F1 score",round(f1,7))]
+        if auc_val: _rows.append(("AUC (ROC)",round(auc_val,5)))
+        return pd.DataFrame(_rows, columns=["Metric","Value"])
+
+    def _render_cm(cm_arr, title, save_key_suffix):
+        fig,ax=_dark_fig(4.5,3.8)
+        sns.heatmap(cm_arr,annot=False,fmt="d",cmap="Blues",ax=ax,linewidths=.5,linecolor="#374151")
+        for _i in range(cm_arr.shape[0]):
+            for _j in range(cm_arr.shape[1]):
+                ax.text(_j+0.5,_i+0.5,str(cm_arr[_i,_j]),ha="center",va="center",fontsize=13,fontweight="bold",color="black")
+        ax.set_title(title,color="#e5e7eb",fontsize=11)
+        ax.set_xlabel("Predicted",color="#9ca3af"); ax.set_ylabel("Actual",color="#9ca3af")
+        fig_to_st(fig, save_key=save_key_suffix)
+
+    def _render_roc(fpr_arr, tpr_arr, auc_v, title, save_key_suffix):
+        fig,ax=_dark_fig(4.5,3.8)
+        ax.plot(fpr_arr,tpr_arr,color="#3b82f6",lw=2,label=f"AUC={auc_v:.4f}" if auc_v else "Fitted")
+        ax.plot([0,1],[0,1],"r--",lw=1,label="Random")
+        ax.plot([0,0,1],[0,1,1],"g:",lw=1,label="Optimum")
+        ax.set_xlabel("1-Specificity (FPR)",color="#9ca3af"); ax.set_ylabel("Sensitivity (TPR)",color="#9ca3af")
+        ax.set_title(title,color="#e5e7eb",fontsize=11)
+        ax.legend(facecolor="#111827",labelcolor="#9ca3af",fontsize=9)
+        fig_to_st(fig, save_key=save_key_suffix)
+
+    # ── TRAINING ───────────────────────────────────────────────────────────────
+    st.markdown("""<div style="font-size:.9rem;font-weight:700;color:#60a5fa;margin:14px 0 6px;
+        padding:7px 12px;background:rgba(59,130,246,.1);border-left:3px solid #3b82f6;border-radius:4px">
+        Training: Classification Summary</div>""", unsafe_allow_html=True)
+    _tr_correct = int(np.diag(tr_cm).sum())
+    _tr_met_df = _render_metrics_table("Training",_tr_correct,len(y_tr),tr_spec,tr_sens,
+        precision_score(y_tr,y_tr_pred,zero_division=0),tr_f1)
+    # Training Error Report
+    _tr_err=[]
+    for _cls in sorted(set(y_tr)):
+        _mask=(y_tr==_cls); _ne=int((y_tr_pred[_mask]!=_cls).sum())
+        _tr_err.append({"Class":int(_cls),"# Cases":int(_mask.sum()),"# Errors":_ne,"% Error":round(100*_ne/_mask.sum(),5)})
+    _ov=int((y_tr_pred!=y_tr).sum())
+    _tr_err.append({"Class":"Overall","# Cases":len(y_tr),"# Errors":_ov,"% Error":round(100*_ov/len(y_tr),5)})
+    _tc1,_tc2=st.columns(2)
+    with _tc1:
+        st.caption("Confusion Matrix — Training")
+        _render_cm(tr_cm,"Training Confusion Matrix", method+"_tr_cm")
+    with _tc2:
+        st.caption("Metrics — Training")
+        with st.expander("Training: Error Report",expanded=False):
+            st.dataframe(_sanitize_df(pd.DataFrame(_tr_err)),width="stretch")
+    # Training ROC
+    if is_bin and hasattr(mdl,"predict_proba"):
+        try:
+            _fpr_tr,_tpr_tr,_=roc_curve(y_tr,mdl.predict_proba(X_tr)[:,1])
+            _auc_tr=roc_auc_score(y_tr,mdl.predict_proba(X_tr)[:,1])
+            _render_roc(_fpr_tr,_tpr_tr,_auc_tr,f"ROC Curve — Training (AUC={_auc_tr:.4f})",method+"_tr_roc")
+        except Exception: pass
+
+    st.markdown("---")
+
+    # ── VALIDATION ─────────────────────────────────────────────────────────────
+    st.markdown("""<div style="font-size:.9rem;font-weight:700;color:#34d399;margin:14px 0 6px;
+        padding:7px 12px;background:rgba(16,185,129,.1);border-left:3px solid #10b981;border-radius:4px">
+        Validation: Classification Summary</div>""", unsafe_allow_html=True)
+    _val_correct = int(np.diag(cm).sum())
+    _val_met_df = _render_metrics_table("Validation",_val_correct,len(y_te),val_spec,rec,prec,f1,auc)
+    # Validation Error Report
+    _val_err=[]
+    for _cls in sorted(set(y_te)):
+        _mask=(y_te==_cls); _ne=int((y_pred[_mask]!=_cls).sum())
+        _val_err.append({"Class":int(_cls),"# Cases":int(_mask.sum()),"# Errors":_ne,"% Error":round(100*_ne/_mask.sum(),5)})
+    _ove=int((y_pred!=y_te).sum())
+    _val_err.append({"Class":"Overall","# Cases":len(y_te),"# Errors":_ove,"% Error":round(100*_ove/len(y_te),5)})
+    _vc1,_vc2=st.columns(2)
+    with _vc1:
+        st.caption("Confusion Matrix — Validation")
+        _render_cm(cm,"Validation Confusion Matrix", method+"_val_cm")
+    with _vc2:
+        st.caption("Metrics — Validation")
+        with st.expander("Validation: Error Report",expanded=False):
+            st.dataframe(_sanitize_df(pd.DataFrame(_val_err)),width="stretch")
+    # Validation ROC + Decile Lift + Posterior Probs
+    if is_bin and hasattr(mdl,"predict_proba"):
+        _proba_te=mdl.predict_proba(X_te)
+        try:
+            _fpr,_tpr,_=roc_curve(y_te,_proba_te[:,1])
+            _render_roc(_fpr,_tpr,auc,f"ROC Curve — Validation (AUC={auc:.4f})" if auc else "ROC Curve — Validation",method+"_val_roc")
+        except Exception: pass
+        # Decile Lift (Solver Analytics format)
+        try:
+            _prob1=_proba_te[:,1]; _sidx=_prob1.argsort()[::-1]
+            _n=len(y_te); _gr=y_te.mean()
+            _dec_rows=[]
+            for _d in range(1,11):
+                _s=int((_d-1)*_n/10); _e=int(_d*_n/10)
+                _idx_d=_sidx[_s:_e]; _md=y_te[_idx_d].mean(); _std=y_te[_idx_d].std()
+                _dec_rows.append({"Decile":_d,"Mean":round(_md,6),"Std.Dev.":round(_std,6),
+                    "Min.":int(y_te[_idx_d].min()),"Max.":int(y_te[_idx_d].max()),
+                    "Lift (Decile/Global)":round(_md/_gr,4) if _gr>0 else 0})
+            with st.expander("Validation: Decile-wise Lift Table",expanded=False):
+                st.dataframe(_sanitize_df(pd.DataFrame(_dec_rows)),width="stretch")
+        except Exception: pass
+        with st.expander("Validation: Posterior Probabilities (top 20)",expanded=False):
+            _prob_df=pd.DataFrame({"Record":[f"Record {i+1}" for i in range(min(20,len(y_te)))],"Actual":y_te[:20],"Predicted":y_pred[:20],"PostProb: 0":_proba_te[:20,0].round(6),"PostProb: 1":_proba_te[:20,1].round(6)})
+            st.dataframe(_sanitize_df(_prob_df),width="stretch")
+
+    with st.expander("Full Classification Report",expanded=False):
         st.text(classification_report(y_te,y_pred))
-    col_a,col_b=st.columns(2)
-    with col_a:
-        st.markdown('<div class="chart-title">Confusion Matrix</div>',unsafe_allow_html=True)
-        fig,ax=_dark_fig(5,4)
-        cm = confusion_matrix(y_te, y_pred)
-        sns.heatmap(cm, annot=False, fmt='d', cmap='Blues', ax=ax,
-                    linewidths=.5, linecolor='#374151')
-        # Chữ đen trên tất cả ô — dễ đọc nhất
-        for _i in range(cm.shape[0]):
-            for _j in range(cm.shape[1]):
-                ax.text(_j + 0.5, _i + 0.5, str(cm[_i, _j]),
-                        ha='center', va='center', fontsize=14, fontweight='bold', color='black')
-        ax.set_title("Confusion Matrix",color='#e5e7eb')
-        ax.set_xlabel("Predicted",color='#9ca3af'); ax.set_ylabel("Actual",color='#9ca3af')
-        fig_to_st(fig, save_key=method)
-        st.markdown('<div class="chart-cap">Large diagonal = correct predictions. Off-diagonal = errors.</div>',unsafe_allow_html=True)
-    with col_b:
-        if is_bin and hasattr(mdl,"predict_proba"):
-            st.markdown('<div class="chart-title">ROC Curve</div>',unsafe_allow_html=True)
-            try:
-                fpr,tpr,_=roc_curve(y_te,mdl.predict_proba(X_te)[:,1])
-                fig2,ax2=_dark_fig(5,4)
-                ax2.plot(fpr,tpr,color='#3b82f6',lw=2,label=f"AUC={auc:.3f}" if auc else "ROC")
-                ax2.plot([0,1],[0,1],'r--',lw=1,label="Random")
-                ax2.set_xlabel("FPR",color='#9ca3af'); ax2.set_ylabel("TPR",color='#9ca3af')
-                ax2.set_title("ROC Curve",color='#e5e7eb')
-                ax2.legend(facecolor='#111827',labelcolor='#9ca3af')
-                fig_to_st(fig2, save_key=method)
-                st.markdown('<div class="chart-cap">Curve near top-left = strong model. Near diagonal = weak.</div>',unsafe_allow_html=True)
-            except Exception: pass
     if hasattr(mdl,"feature_importances_") or hasattr(mdl,"coef_"):
         st.markdown('<div class="chart-title">Feature Importance</div>',unsafe_allow_html=True)
         if hasattr(mdl,"feature_importances_"):
@@ -851,13 +980,77 @@ def run_classification(method,df,target,features,test_size,balance,split_seed=42
         "type":"classification","classes":list(np.unique(y)),
         "label_encoder": st.session_state.get("enc_mapping",{}).get(st.session_state.get("active_sheet",""),{})
     }
-    # Lưu train/val data
-    tr_df=pd.DataFrame(X_tr,columns=[f"{c}_scaled" for c in features])
-    tr_df[target]=y_tr
-    te_df=pd.DataFrame(X_te,columns=[f"{c}_scaled" for c in features])
-    te_df[target+"_actual"]=y_te; te_df[target+"_predicted"]=y_pred
+    # Lưu Score tables theo format Solver Analytics
+    _tr_correct2=int(np.diag(tr_cm).sum()); _val_correct2=int(np.diag(cm).sum())
+    _tr_prec2=precision_score(y_tr,y_tr_pred,zero_division=0)
+    # Training Score table
+    _tr_score=pd.DataFrame([
+        ["Confusion Matrix","",""],
+        [f"Actual\\Predicted","0","1"],
+        ["0",int(tr_cm[0,0]),int(tr_cm[0,1])],
+        ["1",int(tr_cm[1,0]),int(tr_cm[1,1])],
+        ["","",""],
+        ["Error Report","",""],
+        ["Class","# Cases","# Errors","% Error"],
+        ["0",int(sum(y_tr==0)),int(tr_cm[0,1]),round(100*tr_cm[0,1]/max(1,sum(y_tr==0)),5)],
+        ["1",int(sum(y_tr==1)),int(tr_cm[1,0]),round(100*tr_cm[1,0]/max(1,sum(y_tr==1)),5)],
+        ["Overall",len(y_tr),int((y_tr_pred!=y_tr).sum()),round(100*(y_tr_pred!=y_tr).mean(),5)],
+        ["","",""],
+        ["Metrics","Value",""],
+        ["Accuracy (#correct)",_tr_correct2,""],
+        ["Accuracy (%correct)",round(100*_tr_correct2/len(y_tr),5),""],
+        ["Specificity",round(tr_spec,7),""],
+        ["Sensitivity (Recall)",round(tr_sens,7),""],
+        ["Precision",round(_tr_prec2,7),""],
+        ["F1 score",round(tr_f1,7),""],
+        ["Success Class",1,""],
+    ])
+    # Validation Score table
+    _proba_store=mdl.predict_proba(X_te) if hasattr(mdl,"predict_proba") else None
+    _val_det_rows=[["Record ID","Actual","Predicted","PostProb: 0","PostProb: 1"]]
+    for _ri in range(min(len(y_te),100)):
+        _pp0=round(float(_proba_store[_ri,0]),6) if _proba_store is not None else ""
+        _pp1=round(float(_proba_store[_ri,1]),6) if _proba_store is not None else ""
+        _val_det_rows.append([f"Record {_ri+1}",int(y_te[_ri]),int(y_pred[_ri]),_pp0,_pp1])
+    _val_score=pd.DataFrame([
+        ["Confusion Matrix","",""],
+        [f"Actual\\Predicted","0","1"],
+        ["0",int(cm[0,0]),int(cm[0,1])],
+        ["1",int(cm[1,0]),int(cm[1,1])],
+        ["","",""],
+        ["Error Report","",""],
+        ["Class","# Cases","# Errors","% Error"],
+        ["0",int(sum(y_te==0)),int(cm[0,1]),round(100*cm[0,1]/max(1,sum(y_te==0)),5)],
+        ["1",int(sum(y_te==1)),int(cm[1,0]),round(100*cm[1,0]/max(1,sum(y_te==1)),5)],
+        ["Overall",len(y_te),int((y_pred!=y_te).sum()),round(100*(y_pred!=y_te).mean(),5)],
+        ["","",""],
+        ["Metrics","Value","Definition"],
+        ["Accuracy (#correct)",_val_correct2,""],
+        ["Accuracy (%correct)",round(100*_val_correct2/len(y_te),5),""],
+        ["Specificity",round(val_spec,7),"TN / (TN + FP) — Ti le du bao dung class am"],
+        ["Sensitivity (Recall)",round(rec,7),"TP / (TP + FN) — Ti le phat hien dung class duong"],
+        ["Precision",round(prec,7),"TP / (TP + FP) — Do chinh xac khi du bao duong"],
+        ["F1 score",round(f1,7),"2 x Precision x Recall / (Precision + Recall)"],
+        ["AUC (ROC)",round(auc,5) if auc else "N/A","Area Under ROC Curve — 1.0 = hoan hao"],
+        ["Success Class",1,""],
+    ])
+    # Decile/Lift table
+    _decile_export=[]
+    if _proba_store is not None:
+        try:
+            _p1=_proba_store[:,1]; _si=_p1.argsort()[::-1]
+            _n2=len(y_te); _gr2=y_te.mean()
+            for _d in range(1,11):
+                _s2=int((_d-1)*_n2/10); _e2=int(_d*_n2/10)
+                _yd=y_te[_si[_s2:_e2]]
+                _decile_export.append([f"Decile {_d}",round(float(_yd.mean()),6),round(float(_yd.std()),6),int(_yd.min()),int(_yd.max()),_d,_d,round(float(_yd.mean())/_gr2,4) if _gr2>0 else 0])
+        except Exception: pass
+    _lift_df=pd.DataFrame(_decile_export,columns=["Decile","Mean","Std.Dev.","Min.","Max.","ID","Decile (ID)","Decile/Global Mean"]) if _decile_export else pd.DataFrame()
+    _val_det_df=pd.DataFrame(_val_det_rows[1:],columns=_val_det_rows[0]) if len(_val_det_rows)>1 else pd.DataFrame()
     st.session_state.setdefault("_split_data",{})[method]={
-        "train":tr_df,"validation":te_df,"features":features,"target":target
+        "training_score":_tr_score,"validation_score":_val_score,
+        "lift":_lift_df,"validation_details":_val_det_df,
+        "features":features,"target":target,"type":"classification"
     }
     return metrics,mdl,X_te,y_te,y_pred
 
@@ -895,10 +1088,10 @@ def run_regression(method,df,target,features,test_size,split_seed=42):
     st.session_state.setdefault("_trained_models",{})[method]={
         "model":mdl,"scaler":scaler_r,"features":features,"target":target,"type":"regression"
     }
-    tr_df2=pd.DataFrame(X_tr,columns=[f"{c}_scaled" for c in features]); tr_df2[target]=y_tr
-    te_df2=pd.DataFrame(X_te,columns=[f"{c}_scaled" for c in features])
-    te_df2[target+"_actual"]=y_te; te_df2[target+"_predicted"]=y_pred
-    st.session_state.setdefault("_split_data",{})[method]={"train":tr_df2,"validation":te_df2,"features":features,"target":target}
+    _reg_score_tr=pd.DataFrame([["Metrics","Train Value"],["R2",round(r2_score(y_tr,mdl.predict(X_tr)),4)],["RMSE",round(float(np.sqrt(mean_squared_error(y_tr,mdl.predict(X_tr)))),4)],["Train rows",len(X_tr)]])
+    _reg_score_val=pd.DataFrame([["Metrics","Validation Value"],["R2",round(r2,4)],["RMSE",round(float(np.sqrt(mse)),4)],["Validation rows",len(X_te)]])
+    _reg_det=pd.DataFrame({"Record":[f"Record {i+1}" for i in range(len(y_te))],"Actual":y_te,"Predicted":y_pred.round(4),"Residual":residuals.round(4)})
+    st.session_state.setdefault("_split_data",{})[method]={"training_score":_reg_score_tr,"validation_score":_reg_score_val,"validation_details":_reg_det,"lift":pd.DataFrame(),"features":features,"target":target,"type":"regression"}
     return metrics
 
 def run_clustering(method,df,features,n_clusters):
@@ -972,18 +1165,98 @@ def run_association(df,min_support,min_confidence,min_lift):
              "Rules found":len(rules),"Min Support":min_support,"Min Confidence":min_confidence,"Min Lift":min_lift}
     return metrics,display
 
+def _fmt_score_sheet(ws, sheet_name=""):
+    """Apply Solver Analytics-style formatting to TrainScore / ValScore sheets."""
+    from openpyxl.styles import PatternFill, Font, Alignment, Border, Side, numbers
+    from openpyxl.utils import get_column_letter
+
+    # Color palette
+    BLUE_HDR  = PatternFill("solid", fgColor="1E3A5F")   # section header
+    BLUE_COL  = PatternFill("solid", fgColor="1D4ED8")   # column header
+    GREEN_H   = PatternFill("solid", fgColor="064E3B")   # green highlight row
+    AMBER_H   = PatternFill("solid", fgColor="451A03")   # amber section
+    LIGHT_ROW = PatternFill("solid", fgColor="0F172A")   # data row background
+    ALT_ROW   = PatternFill("solid", fgColor="111827")   # alternating row
+    WHITE     = Font(color="F1F5F9", bold=True, name="Calibri", size=10)
+    BOLD_W    = Font(color="FFFFFF", bold=True, name="Calibri", size=11)
+    DATA_F    = Font(color="E2E8F0", name="Calibri", size=10)
+    GREEN_F   = Font(color="34D399", bold=True, name="Calibri", size=10)
+    BLUE_F    = Font(color="60A5FA", bold=True, name="Calibri", size=11)
+    thin = Side(style="thin", color="1E293B")
+    bdr  = Border(left=thin, right=thin, top=thin, bottom=thin)
+    ctr  = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    lft  = Alignment(horizontal="left",   vertical="center", wrap_text=True)
+    rgt  = Alignment(horizontal="right",  vertical="center")
+
+    # Section keywords that get special styling
+    SEC_KEYS = {"Confusion Matrix", "Error Report", "Metrics", "Validation: Classification Details"}
+    COL_KEYS = {"Actual\\Predicted", "Actual/Predicted", "Class", "Metric", "Record ID"}
+    METRIC_KEYS = {"Accuracy (#correct)","Accuracy (%correct)","Specificity","Sensitivity (Recall)","Precision","F1 score","AUC (ROC)"}
+
+    for row_idx, row in enumerate(ws.iter_rows(), start=1):
+        for cell in row:
+            if cell.value is None:
+                continue
+            v = str(cell.value).strip()
+            col = cell.column
+
+            # Section headers
+            if v in SEC_KEYS:
+                cell.fill = BLUE_HDR; cell.font = BOLD_W; cell.alignment = lft
+            # Column headers
+            elif v in COL_KEYS or (col == 1 and v in ("0","1","Overall")):
+                cell.fill = BLUE_COL; cell.font = WHITE; cell.alignment = ctr
+            # Metric name rows
+            elif col == 1 and v in METRIC_KEYS:
+                cell.fill = ALT_ROW; cell.font = DATA_F; cell.alignment = lft
+            # Metric value rows
+            elif col == 2 and row[0].value in METRIC_KEYS:
+                cell.fill = ALT_ROW; cell.font = BLUE_F; cell.alignment = rgt
+                try:
+                    fv = float(v)
+                    if 0 < fv <= 1: cell.number_format = "0.0000"
+                    elif fv > 1 and fv <= 100: cell.number_format = "0.00"
+                except: pass
+            elif col == 3 and row[0].value in METRIC_KEYS:
+                cell.fill = ALT_ROW; cell.font = Font(color="94A3B8", italic=True, size=9); cell.alignment = lft
+            # Data rows alternating
+            else:
+                cell.fill = LIGHT_ROW if row_idx % 2 == 0 else ALT_ROW
+                cell.font = DATA_F; cell.alignment = lft
+            cell.border = bdr
+
+    # Column widths
+    col_widths = {1: 28, 2: 16, 3: 40}
+    for c, w in col_widths.items():
+        ws.column_dimensions[get_column_letter(c)].width = w
+    ws.row_dimensions[1].height = 20
+
+    # Title in row 0 (above data) - add a proper title row
+    ws.insert_rows(1)
+    title_cell = ws.cell(row=1, column=1)
+    title_cell.value = f"Data Science: Classification Report — {sheet_name}"
+    title_cell.fill = PatternFill("solid", fgColor="0F172A")
+    title_cell.font = Font(color="60A5FA", bold=True, size=12, name="Calibri")
+    title_cell.alignment = lft
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=3)
+    ws.row_dimensions[1].height = 24
+
 def export_to_excel(results_dict, figures_dict=None):
     """
-    Xuất Excel với dữ liệu + biểu đồ nhúng vào cùng sheet.
+    Xuất Excel với formatting đẹp theo chuẩn Solver Analytics.
     figures_dict: {method_name: [png_bytes, ...]}
     """
-    from openpyxl import load_workbook
     from openpyxl.drawing.image import Image as XLImage
 
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as writer:
         for name, df in results_dict.items():
             df.to_excel(writer, sheet_name=str(name)[:31], index=False)
+            # Apply formatting for Score sheets
+            if any(k in name for k in ["TrainScore","ValScore","LiftChart"]):
+                try:
+                    _fmt_score_sheet(writer.sheets[str(name)[:31]], sheet_name=name)
+                except Exception: pass
 
         # Nhúng biểu đồ vào sheet riêng "Charts"
         if figures_dict:
@@ -2032,52 +2305,105 @@ if ws>=2:
                 nj,msg,mapping=fix_encode(cur_json, encode_type="ordinal", ordinal_orders=_ord_orders)
                 stack.append(("🔤 Custom Ordinal",nj)); log.append(("🔤 Custom Ordinal",msg))
                 st.session_state["enc_mapping"][active_name]=mapping; detect_problems.clear(); st.rerun()
-    # ── Grouping & Binning (trong Prep Data) ────────────────────────────────
+    # ── Grouping & Binning (nhiều cột, tối đa 10) ────────────────────────────
     st.markdown("---")
-    sec_hdr("🗂️","Grouping & Binning","amber",subtitle="Tạo cột mới: nhóm giá trị text hoặc chia khoảng số")
-    _gb_c1, _gb_c2 = st.columns([2,3])
-    with _gb_c1:
-        gb_col=st.selectbox("Chọn cột",["(chọn cột)"] + cur_df.columns.tolist(),key=f"gb_col_{prep_target[:8]}")
-    if gb_col and gb_col != "(chọn cột)":
-        with _gb_c2:
-            gb_type=st.radio("Loại","Binning (số→khoảng) | Grouping (text→nhóm)".split(" | "),
-                horizontal=True,key=f"gb_type_{prep_target[:8]}")
-        if "Binning" in gb_type and pd.api.types.is_numeric_dtype(cur_df[gb_col]):
-            _gc1,_gc2,_gc3=st.columns([1,2,2])
-            with _gc1: gb_bins=st.number_input("Số khoảng",2,50,5,key=f"gb_bins_{prep_target[:8]}")
-            with _gc2: gb_labels_raw=st.text_input("Nhãn khoảng (cách phẩy, để trống=tự động)",key=f"gb_labels_{prep_target[:8]}")
-            with _gc3: gb_new_col=st.text_input("Tên cột mới",value=f"{gb_col}_bin",key=f"gb_new_col_{prep_target[:8]}")
-            if st.button("✅ Áp dụng Binning",key=f"do_bin_{prep_target[:8]}"):
-                try:
-                    labels=None
-                    if gb_labels_raw.strip():
-                        labels=[l.strip() for l in gb_labels_raw.split(",")]
-                        if len(labels)!=gb_bins: labels=None; st.warning(f"Cần {gb_bins} nhãn, bỏ qua labels.")
-                    cur_df[gb_new_col]=pd.cut(cur_df[gb_col],bins=int(gb_bins),labels=labels)
-                    cur_df[gb_new_col]=cur_df[gb_new_col].astype(str)
-                    new_json=_df_to_json(cur_df)
-                    st.session_state["prep_transforms"][prep_target].append((f"Binning {gb_col}→{gb_bins} bins",new_json))
-                    st.success(f"✅ Đã tạo cột '{gb_new_col}' với {gb_bins} khoảng"); st.rerun()
-                except Exception as e: st.error(f"Lỗi Binning: {e}")
-        elif "Grouping" in gb_type and not pd.api.types.is_numeric_dtype(cur_df[gb_col]):
-            unique_vals=sorted(cur_df[gb_col].dropna().unique().tolist())
-            st.markdown(f"**Giá trị duy nhất ({len(unique_vals)}):** {', '.join(str(v) for v in unique_vals[:20])}")
-            gb_map_raw=st.text_area("Mapping (mỗi dòng: giá_trị_gốc → nhóm_mới)",
-                placeholder="Hà Nội → Miền Bắc\nTP.HCM → Miền Nam",key=f"gb_map_{prep_target[:8]}")
-            gb_new_col2=st.text_input("Tên cột mới",value=f"{gb_col}_group",key=f"gb_new_col2_{prep_target[:8]}")
-            if st.button("✅ Áp dụng Grouping",key=f"do_group_{prep_target[:8]}"):
-                try:
-                    mapping={}
-                    for line in gb_map_raw.strip().split("\n"):
-                        if "→" in line:
-                            k,v=line.split("→",1); mapping[k.strip()]=v.strip()
-                    cur_df[gb_new_col2]=cur_df[gb_col].map(mapping).fillna(cur_df[gb_col])
-                    new_json=_df_to_json(cur_df)
-                    st.session_state["prep_transforms"][prep_target].append((f"Grouping {gb_col}→{gb_new_col2}",new_json))
-                    st.success(f"✅ Đã tạo cột '{gb_new_col2}' với {cur_df[gb_new_col2].nunique()} nhóm"); st.rerun()
-                except Exception as e: st.error(f"Lỗi Grouping: {e}")
+    sec_hdr("🗂️","Grouping & Binning","amber",subtitle="Chọn tối đa 10 cột — áp dụng cùng 1 thao tác cho tất cả")
+
+    _num_cols_gb = cur_df.select_dtypes(include=[np.number]).columns.tolist()
+    _txt_cols_gb = cur_df.select_dtypes(include=["object","string"]).columns.tolist()
+
+    _gba_c1, _gba_c2 = st.columns([3, 2])
+    with _gba_c1:
+        gb_type = st.radio("Loại thao tác",
+            ["Binning — chia cột SỐ thành khoảng", "Grouping — nhóm cột TEXT"],
+            horizontal=True, key=f"gb_type2_{prep_target[:8]}")
+    with _gba_c2:
+        gb_bins_global = st.number_input("Số khoảng (Binning)", 2, 50, 5,
+            key=f"gb_bins_g_{prep_target[:8]}",
+            help="Áp dụng chung cho tất cả cột được chọn") if "Binning" in gb_type else None
+
+    if "Binning" in gb_type:
+        if not _num_cols_gb:
+            st.info("Không có cột số trong dataset.")
         else:
-            st.info("Binning chỉ áp dụng cho cột số. Grouping chỉ áp dụng cho cột text.")
+            gb_cols = st.multiselect(
+                f"Chọn cột SỐ để Bin (tối đa 10, hiện có {len(_num_cols_gb)} cột số)",
+                _num_cols_gb, max_selections=10,
+                key=f"gb_cols_num_{prep_target[:8]}")
+            if gb_cols:
+                st.markdown(f'<div style="font-size:.78rem;color:#6b7280;margin-bottom:6px">Sẽ tạo {len(gb_cols)} cột mới: {", ".join(c+"_bin" for c in gb_cols)}</div>', unsafe_allow_html=True)
+                _gb_label_raw = st.text_input(
+                    f"Nhãn cho {gb_bins_global} khoảng (cách phẩy, để trống=tự động — áp dụng cho tất cả cột)",
+                    key=f"gb_labels_g_{prep_target[:8]}")
+                if st.button(f"✅ Bin {len(gb_cols)} cột thành {gb_bins_global} khoảng",
+                             key=f"do_bin_multi_{prep_target[:8]}", type="primary"):
+                    try:
+                        labels = None
+                        if _gb_label_raw.strip():
+                            labels = [l.strip() for l in _gb_label_raw.split(",")]
+                            if len(labels) != gb_bins_global:
+                                labels = None
+                                st.warning(f"Cần {gb_bins_global} nhãn, bỏ qua.")
+                        for _gc in gb_cols:
+                            # Equal Count binning with rank numbers (like Solver Analytics)
+                            cur_df[f"{_gc}_bin"] = pd.qcut(
+                                cur_df[_gc].rank(method="first"),
+                                q=int(gb_bins_global),
+                                labels=labels if labels else list(range(1, int(gb_bins_global)+1))
+                            ).astype(str)
+                        new_json = _df_to_json(cur_df)
+                        _label_bin = f"Binning {len(gb_cols)} cols ({gb_bins_global} bins)"
+                        st.session_state["prep_transforms"][prep_target].append((_label_bin, new_json))
+                        st.session_state["prep_log"].setdefault(prep_target,[]).append((_label_bin, f"Tạo {len(gb_cols)} cột bin với {gb_bins_global} khoảng: {', '.join(c+'_bin' for c in gb_cols)}"))
+                        detect_problems.clear()
+                        st.success(f"✅ Đã tạo {len(gb_cols)} cột bin: {', '.join(c+'_bin' for c in gb_cols)}")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Lỗi Binning: {e}")
+    else:
+        if not _txt_cols_gb:
+            st.info("Không có cột text trong dataset.")
+        else:
+            gb_cols_txt = st.multiselect(
+                f"Chọn cột TEXT để Group (tối đa 10, hiện có {len(_txt_cols_gb)} cột text)",
+                _txt_cols_gb, max_selections=10,
+                key=f"gb_cols_txt_{prep_target[:8]}")
+            if gb_cols_txt:
+                st.markdown(f'<div style="font-size:.78rem;color:#6b7280;margin-bottom:6px">Nhập mapping cho từng cột (bỏ trống = giữ nguyên):</div>', unsafe_allow_html=True)
+                _all_mappings = {}
+                for _tc in gb_cols_txt:
+                    _uniq = sorted(cur_df[_tc].dropna().astype(str).unique().tolist())
+                    with st.expander(f"Cột: {_tc} ({len(_uniq)} giá trị duy nhất)", expanded=len(gb_cols_txt)==1):
+                        st.caption(f"Giá trị: {', '.join(_uniq[:15])}{'...' if len(_uniq)>15 else ''}")
+                        _map_raw = st.text_area(
+                            "Mapping (mỗi dòng: giá_trị → nhóm_mới)",
+                            placeholder="Hà Nội → Miền Bắc\nHải Phòng → Miền Bắc\nTP.HCM → Miền Nam",
+                            key=f"gb_map_{_tc[:10]}_{prep_target[:6]}", height=100)
+                        if _map_raw.strip():
+                            _m = {}
+                            for line in _map_raw.strip().split("\n"):
+                                if "→" in line:
+                                    k, v = line.split("→", 1)
+                                    _m[k.strip()] = v.strip()
+                            _all_mappings[_tc] = _m
+                if st.button(f"✅ Group {len(gb_cols_txt)} cột",
+                             key=f"do_group_multi_{prep_target[:8]}", type="primary"):
+                    try:
+                        for _tc in gb_cols_txt:
+                            _m = _all_mappings.get(_tc, {})
+                            if _m:
+                                cur_df[f"{_tc}_group"] = cur_df[_tc].astype(str).map(_m).fillna(cur_df[_tc].astype(str))
+                            else:
+                                cur_df[f"{_tc}_group"] = cur_df[_tc]
+                        new_json = _df_to_json(cur_df)
+                        _label_grp = f"Grouping {len(gb_cols_txt)} cols"
+                        st.session_state["prep_transforms"][prep_target].append((_label_grp, new_json))
+                        st.session_state["prep_log"].setdefault(prep_target,[]).append((_label_grp, f"Nhóm {len(gb_cols_txt)} cột text: {', '.join(c+'_group' for c in gb_cols_txt)}"))
+                        detect_problems.clear()
+                        st.success(f"✅ Đã tạo {len(gb_cols_txt)} cột group: {', '.join(c+'_group' for c in gb_cols_txt)}")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Lỗi Grouping: {e}")
 
     if log:
         st.markdown("---"); sec_hdr("📋","Change Log","green")
@@ -2226,7 +2552,8 @@ if ws>=3:
             with _seed_c2:
                 if not _use_random:
                     _custom_seed = st.number_input("Seed", 0, 9999, 42, key="_custom_seed",
-                        help="So seed de tái tao ket qua.", label_visibility="visible")
+                        help="Random seed: so khoi dau cho train/val split. 42=mac dinh quoc te; 12345=XLMiner/Solver Analytics dung; thay doi seed tao phan vung khac nhau.",
+    label_visibility="visible")
                     _split_seed = int(_custom_seed)
                 else:
                     import random as _rnd_mod
@@ -2261,7 +2588,24 @@ if ws>=3:
             with ra2: min_conf=st.slider("Min Confidence",.1,1.,.3,.05)
             with ra3: min_lift=st.slider("Min Lift",1.,10.,1.,.1)
 
-        if not sel: st.info("👆 Select at least one method above to run analysis.")
+        # Validation trước khi Run
+        _can_run = True
+        _run_warnings = []
+        if sel:
+            _has_clf_sel = any(METHODS[m]["group"]=="classification" for m in sel)
+            _has_pred_sel = any(METHODS[m]["group"]=="prediction" for m in sel)
+            if (_has_clf_sel or _has_pred_sel) and not target_col:
+                _run_warnings.append("Chua chon Target column.")
+                _can_run = False
+            if (_has_clf_sel or _has_pred_sel) and not feature_cols:
+                _run_warnings.append("Chua chon Feature columns. Vao 'Configure Supervised Learning' chon it nhat 1 feature.")
+                _can_run = False
+
+        if not sel:
+            st.info("Chon it nhat 1 method o tren truoc khi chay.")
+        elif not _can_run:
+            for _w in _run_warnings:
+                st.error(f"Khong the chay: {_w}")
         elif st.button("🚀 Run Selected Methods",type="primary"):
             st.session_state["run_results"]=[]; st.session_state["run_exports"]={}
             st.session_state["_run_figures"]={}
@@ -2307,7 +2651,10 @@ if ws>=3:
                         st.success(f"{method}: {len(y_):,} → {len(yr):,} samples.")
                         st.session_state["run_results"].append({"Method":method,"Before rows":len(y_),"After rows":len(yr)})
                 except Exception as e: st.error(f"Error running {method}: {e}")
-            st.session_state["wizard_step"]=4; st.rerun()
+            if st.session_state["run_results"]:
+                st.session_state["wizard_step"]=4; st.rerun()
+            else:
+                st.warning("Khong co ket qua nao duoc tao. Kiem tra lai cau hinh (Target/Feature columns).")
 
 
     if ws==3:
@@ -2555,9 +2902,16 @@ if ws>=4:
 
             # -- Train / Validation data per model
             for mname, split in st.session_state.get("_split_data",{}).items():
-                short = mname[:20].replace(" ","_")
-                exp_sheets[f"Train_{short}"] = _sanitize_df(split["train"].copy())
-                exp_sheets[f"Val_{short}"] = _sanitize_df(split["validation"].copy())
+                short = mname[:18].replace(" ","_")
+                if "training_score" in split:
+                    exp_sheets[f"{short}_TrainScore"] = _sanitize_df(split["training_score"].copy())
+                    exp_sheets[f"{short}_ValScore"] = _sanitize_df(split["validation_score"].copy())
+                    if not split.get("lift",pd.DataFrame()).empty:
+                        exp_sheets[f"{short}_LiftChart"] = _sanitize_df(split["lift"].copy())
+                    if not split.get("validation_details",pd.DataFrame()).empty:
+                        _vdet=split["validation_details"].copy()
+                        if len(_vdet)>200: _vdet=_vdet.head(200)
+                        exp_sheets[f"{short}_ValDetails"] = _sanitize_df(_vdet)
 
             # -- Ket qua model
             exp_sheets["Comparison Table"] = cmp_df2
@@ -2590,6 +2944,4 @@ if ws>=4:
         for key2 in ["wizard_step","ai_blueprint","prep_transforms","prep_log","enc_mapping",
                      "user_goal","selected_methods","run_results","run_exports","comparison_ai","ai_vn","chat_messages","_run_figures","_fi_tables","_trained_models","_split_data"]:
             if isinstance(DEFAULTS.get(key2),dict): st.session_state[key2]={}
-            elif isinstance(DEFAULTS.get(key2),list): st.session_state[key2]=[]
-            else: st.session_state[key2]=DEFAULTS.get(key2,"")
-        st.session_state["wizard_step"]=1; st.rerun()
+           
