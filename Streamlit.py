@@ -2001,14 +2001,14 @@ if ws>=2:
         # ── Xuất Before/After dạng Excel ─────────────────────────────────
         _prep_fname = prep_target.replace('::','_').replace(' ','_')[:30]
         _export_sheets = {
-            "📋 Raw Data (Before)": _sanitize_df(prep_raw.copy()),
-            "✅ Cleaned Data (After)": _sanitize_df(cur_df2.copy()),
+            "Raw Data (Before)": _sanitize_df(prep_raw.copy()),
+            "Cleaned Data (After)": _sanitize_df(cur_df2.copy()),
         }
         # Thêm prep log
         if log:
             _log_df = pd.DataFrame([(i+1, step, msg) for i,(step,msg) in enumerate(log)],
                                    columns=["Step","Action","Detail"])
-            _export_sheets["📝 Prep Log"] = _log_df
+            _export_sheets["Prep Log"] = _log_df
         _before_after_bytes = export_to_excel(_export_sheets)
         st.download_button(
             "⬇️ Download Before / After (Excel)",
@@ -2364,24 +2364,24 @@ if ws>=4:
 
             # \u2500\u2500 Sheet 1: Raw Data (Before) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
             raw_sheet = st.session_state["sheets"].get(active_name, raw_df)
-            exp_sheets["\ud83d\udccb Raw Data (Before)"] = _sanitize_df(raw_sheet.copy())
+            exp_sheets["Raw Data (Before)"] = _sanitize_df(raw_sheet.copy())
 
             # \u2500\u2500 Sheet 2: Cleaned Data (After) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
             _prep_stack4 = st.session_state["prep_transforms"].get(active_name, [])
             if _prep_stack4:
                 cleaned_df = _json_to_df(_prep_stack4[-1][1])
-                exp_sheets["\u2705 Cleaned Data (After)"] = _sanitize_df(cleaned_df)
+                exp_sheets["Cleaned Data (After)"] = _sanitize_df(cleaned_df)
             else:
-                exp_sheets["\u2705 Cleaned Data (same as raw)"] = _sanitize_df(raw_sheet.copy())
+                exp_sheets["Cleaned Data (same as raw)"] = _sanitize_df(raw_sheet.copy())
 
             # \u2500\u2500 Sheet 3+: K\u1ebft qu\u1ea3 model \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-            exp_sheets["\ud83d\udcca Comparison Table"] = cmp_df2
+            exp_sheets["Comparison Table"] = cmp_df2
             for label,df_exp in st.session_state.get("run_exports",{}).items():
                 exp_sheets[label[:31]]=df_exp
             if st.session_state.get("comparison_ai"):
-                exp_sheets["\ud83e\udd16 AI Explanation"]=pd.DataFrame({"AI Explanation":st.session_state["comparison_ai"].split("\n")})
+                exp_sheets["AI Explanation"]=pd.DataFrame({"AI Explanation":st.session_state["comparison_ai"].split("\n")})
             if st.session_state.get("ai_blueprint"):
-                exp_sheets["\ud83d\udcdd AI Blueprint"]=pd.DataFrame({"AI Blueprint":st.session_state["ai_blueprint"].split("\n")})
+                exp_sheets["AI Blueprint"]=pd.DataFrame({"AI Blueprint":st.session_state["ai_blueprint"].split("\n")})
             for mname, fi_df in st.session_state.get("_fi_tables",{}).items():
                 exp_sheets[f"FI_{mname[:22]}"]=fi_df
 
