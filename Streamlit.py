@@ -755,15 +755,28 @@ def run_classification(method,df,target,features,test_size,balance,split_seed=42
         except Exception as e: st.warning(f"SMOTE skipped: {e}")
     X_tr,X_te,y_tr,y_te=train_test_split(X,y,test_size=test_size,random_state=split_seed)
     models={
-        "Logistic Regression":LogisticRegression(max_iter=1000),
+        "Logistic Regression":LogisticRegression(max_iter=1000, class_weight="balanced"),
         "Linear Discriminant Analysis (LDA)":LinearDiscriminantAnalysis(),
         "K-Nearest Neighbors (KNN)":KNeighborsClassifier(),
-        "Classification Trees":DecisionTreeClassifier(max_depth=5),
+        "Classification Trees":DecisionTreeClassifier(max_depth=5, class_weight="balanced"),
         "Naive Bayes":GaussianNB(),
         "Support Vector Machine (SVM)":SVC(probability=True),
-        "Random Forest":RandomForestClassifier(n_estimators=100,random_state=42),
+        "Random Forest":RandomForestClassifier(n_estimators=100, random_state=42, class_weight="balanced"),
         "Neural Networks (MLP)":MLPClassifier(max_iter=500,random_state=42),
     }
+    # Auto-adjust for class imbalance
+    _classes, _counts = np.unique(y_tr, return_counts=True)
+    _imbalance_ratio = _counts.max() / _counts.min() if len(_counts)>1 else 1
+    if method == "Naive Bayes" and _imbalance_ratio > 3:
+        # Balanced prior for imbalanced data (matches XLMiner behavior)
+        _n_cls = len(_classes)
+        models["Naive Bayes"] = GaussianNB(priors=[1/_n_cls]*_n_cls)
+        st.info(f"Naive Bayes: dùng prior cân bằng (1/{_n_cls} mỗi class) vì data mất cân bằng {_imbalance_ratio:.1f}:1")
+
+    # Imbalance warning for all models
+    if _imbalance_ratio > 5:
+        st.warning(f"Canh bao: Data mat can bang {_imbalance_ratio:.1f}:1 (class {_classes[np.argmin(_counts)]}: {_counts.min()} mau). Nen dung Class Balancing de tang Sensitivity.")
+
     mdl=models[method]; mdl.fit(X_tr,y_tr); y_pred=mdl.predict(X_te)
     acc=accuracy_score(y_te,y_pred); is_bin=len(np.unique(y))==2; avg="binary" if is_bin else "weighted"
     prec=precision_score(y_te,y_pred,average=avg,zero_division=0)
