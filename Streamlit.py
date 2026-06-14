@@ -691,16 +691,40 @@ def remove_outliers(df_json):
     return _df_to_json(df),f"Đã xóa {removed} dòng chứa outlier ({removed/before:.1%}). Còn lại {len(df):,} dòng."
 
 @st.cache_data(show_spinner=False)
-def fix_encode(df_json):
+def fix_encode(df_json, encode_type="ordinal", ordinal_orders=None):
+    """
+    encode_type: 'ordinal' = Label Encoding (0,1,2...)
+                 'nominal' = One-Hot Encoding (tạo cột dummy)
+    ordinal_orders: dict {col: [val1, val2, ...]} để encode theo thứ tự tùy chỉnh
+    """
     df=_json_to_df(df_json)
     text_cols=df.select_dtypes(include=["object","string"]).columns.tolist()
     if not text_cols: return _df_to_json(df),"No text columns to encode.",{}
-    mapping={}; le=LabelEncoder()
-    for col in text_cols:
-        le.fit(df[col].astype(str))
-        mapping[col]={str(c):int(i) for i,c in enumerate(le.classes_)}
-        df[col]=le.transform(df[col].astype(str))
-    return _df_to_json(df),f"Label-encoded {len(text_cols)} column(s): {', '.join(text_cols)}.",mapping
+    mapping={}
+
+    if encode_type == "nominal":
+        # One-Hot Encoding — tạo cột dummy, bỏ cột gốc
+        df=pd.get_dummies(df, columns=text_cols, drop_first=False, dtype=int)
+        new_cols=[c for c in df.columns if any(c.startswith(t+"_") for t in text_cols)]
+        mapping={col:{"type":"one-hot","new_cols":[c for c in new_cols if c.startswith(col+"_")]} for col in text_cols}
+        msg=f"One-Hot Encoded {len(text_cols)} col(s) → {len(new_cols)} new columns: {', '.join(text_cols)}."
+    else:
+        # Label / Ordinal Encoding
+        le=LabelEncoder()
+        for col in text_cols:
+            if ordinal_orders and col in ordinal_orders:
+                # Thứ tự tùy chỉnh
+                order=ordinal_orders[col]
+                order_map={str(v):i for i,v in enumerate(order)}
+                df[col]=df[col].astype(str).map(order_map).fillna(-1).astype(int)
+                mapping[col]={str(v):i for i,v in enumerate(order)}
+            else:
+                le.fit(df[col].astype(str))
+                mapping[col]={str(c):int(i) for i,c in enumerate(le.classes_)}
+                df[col]=le.transform(df[col].astype(str))
+        msg=f"Label-encoded {len(text_cols)} column(s): {', '.join(text_cols)}."
+
+    return _df_to_json(df), msg, mapping
 
 def suggest_target(df):
     kws=["label","target","class","churn","default","outcome","result","status",
@@ -1953,16 +1977,48 @@ if ws>=2:
         else:
             st.button("✅ No Extremes", disabled=True, key=f"bo_{prep_target[:8]}")
     with b4:
-        if st.button("🔤 Encode Text" if has_text else "✅ No Text Cols",disabled=not has_text,key=f"be_{prep_target[:8]}"):
-            nj,msg,mapping=fix_encode(cur_json); stack.append(("🔤 Encode Text",nj)); log.append(("🔤 Encoding",msg))
-            st.session_state["enc_mapping"][active_name]=mapping; detect_problems.clear(); st.rerun()
+        if has_text:
+            _enc_type = st.selectbox(
+                "Encoding type",
+                ["Ordinal (Label Encoding)", "Nominal (One-Hot Encoding)"],
+                key=f"enc_type_{prep_target[:8]}", label_visibility="collapsed",
+                help="Ordinal: biến có thứ tự (Low/Med/High) → số 0,1,2. Nominal: biến không có thứ tự (màu, loại) → cột 0/1 riêng biệt."
+            )
+            if st.button("🔤 Áp dụng Encoding", key=f"be_{prep_target[:8]}"):
+                _etype = "nominal" if "Nominal" in _enc_type else "ordinal"
+                nj,msg,mapping=fix_encode(cur_json, encode_type=_etype)
+                label=f"🔤 {_enc_type.split(' ')[0]} Encode"
+                stack.append((label,nj)); log.append((label,msg))
+                st.session_state["enc_mapping"][active_name]=mapping; detect_problems.clear(); st.rerun()
+        else:
+            st.button("✅ No Text Cols", disabled=True, key=f"be_{prep_target[:8]}")
 
     if st.session_state["enc_mapping"].get(active_name):
         with st.expander("🗂️ Encoding Map",expanded=False):
             for col,vm in st.session_state["enc_mapping"][active_name].items():
                 st.markdown(f"**`{col}`**")
-                mdf=pd.DataFrame(list(vm.items()),columns=["Original","Encoded"]).sort_values("Encoded")
-                st.dataframe(_sanitize_df(mdf),width='stretch',height=min(200,35*len(mdf)+38))
+                if isinstance(vm, dict) and vm.get("type")=="one-hot":
+                    st.caption(f"One-Hot → {len(vm.get('new_cols',[]))} cột mới: {', '.join(vm.get('new_cols',[]))}")
+                else:
+                    mdf=pd.DataFrame(list(vm.items()),columns=["Original","Encoded"]).sort_values("Encoded")
+                    st.dataframe(_sanitize_df(mdf),width='stretch',height=min(200,35*len(mdf)+38))
+
+    # ── Ordinal custom order (nếu có text cols) ─────────────────────────────
+    text_cols_cur = cur_df.select_dtypes(include=["object","string"]).columns.tolist()
+    if text_cols_cur and not stack:
+        with st.expander("📋 Tùy chỉnh thứ tự Ordinal (tùy chọn)", expanded=False):
+            st.caption("Nhập thứ tự giá trị cho từng cột ordinal. Bỏ trống = sắp xếp tự động A-Z.")
+            _ord_orders = {}
+            for _tc in text_cols_cur[:5]:  # giới hạn 5 cột
+                _uniq = sorted(cur_df[_tc].dropna().unique().tolist())
+                _default = ", ".join(str(v) for v in _uniq)
+                _inp = st.text_input(f"Thứ tự `{_tc}`", value=_default, key=f"ord_{_tc[:15]}_{prep_target[:6]}")
+                if _inp.strip():
+                    _ord_orders[_tc] = [v.strip() for v in _inp.split(",")]
+            if _ord_orders and st.button("🔤 Áp dụng Ordinal có thứ tự", key=f"ord_apply_{prep_target[:8]}"):
+                nj,msg,mapping=fix_encode(cur_json, encode_type="ordinal", ordinal_orders=_ord_orders)
+                stack.append(("🔤 Custom Ordinal",nj)); log.append(("🔤 Custom Ordinal",msg))
+                st.session_state["enc_mapping"][active_name]=mapping; detect_problems.clear(); st.rerun()
     # ── Grouping & Binning (trong Prep Data) ────────────────────────────────
     st.markdown("---")
     sec_hdr("🗂️","Grouping & Binning","amber",subtitle="Tạo cột mới: nhóm giá trị text hoặc chia khoảng số")
@@ -2484,13 +2540,13 @@ if ws>=4:
             else:
                 exp_sheets["Cleaned Data (same as raw)"] = _sanitize_df(raw_sheet.copy())
 
-            # \u2500\u2500 Sheet 3+: K\u1ebft qu\u1ea3 model \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
             # -- Train / Validation data per model
             for mname, split in st.session_state.get("_split_data",{}).items():
                 short = mname[:20].replace(" ","_")
                 exp_sheets[f"Train_{short}"] = _sanitize_df(split["train"].copy())
                 exp_sheets[f"Val_{short}"] = _sanitize_df(split["validation"].copy())
 
+            # -- Ket qua model
             exp_sheets["Comparison Table"] = cmp_df2
             for label,df_exp in st.session_state.get("run_exports",{}).items():
                 exp_sheets[label[:31]]=df_exp
@@ -2500,18 +2556,15 @@ if ws>=4:
                 exp_sheets["AI Blueprint"]=pd.DataFrame({"AI Blueprint":st.session_state["ai_blueprint"].split("\n")})
             for mname, fi_df in st.session_state.get("_fi_tables",{}).items():
                 exp_sheets[f"FI_{mname[:22]}"]=fi_df
-
-            # Preview c\u00e1c sheet s\u1ebd xu\u1ea5t
             for sname, df_p in exp_sheets.items():
                 _clr = "#10b981" if ("Cleaned" in sname or "After" in sname) else ("#ef4444" if ("Raw" in sname or "Before" in sname) else "#60a5fa")
                 _tag = "CLEAN" if ("Cleaned" in sname or "After" in sname) else ("RAW" if ("Raw" in sname or "Before" in sname) else "DATA")
-                _info = f"{df_p.shape[0]:,} rows x {df_p.shape[1]} cols"
+                _info = f'{df_p.shape[0]:,} rows x {df_p.shape[1]} cols'
                 st.markdown(
                     f'<div style="background:#0f1629;border:1px solid #1f2937;border-radius:7px;padding:6px 12px;margin-bottom:4px;font-size:.79rem;color:#9ca3af">'
                     f'<span style="color:{_clr};font-weight:700;margin-right:6px">[{_tag}]</span>'
                     f'<b style="color:#60a5fa">{sname}</b> - {_info}</div>',
                     unsafe_allow_html=True)
-
             st.markdown("<br>",unsafe_allow_html=True)
             figures_dict = st.session_state.get("_run_figures", {})
             excel_bytes=export_to_excel(exp_sheets, figures_dict=figures_dict if figures_dict else None)
