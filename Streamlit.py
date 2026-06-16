@@ -2363,6 +2363,20 @@ if ws>=2:
                         st.session_state["prep_log"].setdefault(prep_target,[]).append((_label_bin, f"Tạo {len(gb_cols)} cột bin với {gb_bins_global} khoảng: {', '.join(c+'_bin' for c in gb_cols)}"))
                         detect_problems.clear()
                         st.success(f"✅ Đã tạo {len(gb_cols)} cột bin: {', '.join(c+'_bin' for c in gb_cols)}")
+                        # Hiển thị Interval Report theo format Solver Analytics
+                        for _gc in gb_cols:
+                            try:
+                                _orig_col = prep_raw[_gc] if _gc in prep_raw.columns else cur_df[_gc]
+                                _bins_edges = pd.qcut(_orig_col.dropna(), q=int(gb_bins_global), retbins=True, duplicates="drop")[1]
+                                _int_rows=[]
+                                for _ii in range(len(_bins_edges)-1):
+                                    _lo=_bins_edges[_ii]; _hi=_bins_edges[_ii+1]
+                                    _n=int(((_orig_col>=_lo)&(_orig_col<=_hi)).sum()) if _ii==len(_bins_edges)-2 else int(((_orig_col>=_lo)&(_orig_col<_hi)).sum())
+                                    _int_rows.append({"Interval ID":f"Interval {_ii+1}","Lower":round(_lo,4),"Upper":round(_hi,4),"# Records":_n})
+                                _int_df=pd.DataFrame(_int_rows)
+                                st.markdown(f'<div style="font-size:.8rem;font-weight:700;color:#60a5fa;margin:10px 0 4px">Intervals for {_gc}</div>',unsafe_allow_html=True)
+                                st.dataframe(_sanitize_df(_int_df),width="stretch",height=min(400,35*len(_int_df)+40))
+                            except Exception: pass
                         st.rerun()
                     except Exception as e:
                         st.error(f"Lỗi Binning: {e}")
@@ -2502,10 +2516,17 @@ if ws>=3:
                         if st.button("＋ Select",key=f"add_{mname}"): st.session_state["selected_methods"].append(mname); st.rerun()
 
         sel=st.session_state["selected_methods"]
+        _btn_c1,_btn_c2,_btn_c3=st.columns([1,1,3])
+        with _btn_c1:
+            if st.button("Select All",key="sel_all_btn",help="Chon tat ca model, khi chay se tu bo qua model bi loi"):
+                all_methods=[n for n,m in METHODS.items() if m["group"] in {"classification","prediction","association"}]
+                st.session_state["selected_methods"]=all_methods; st.rerun()
+        with _btn_c2:
+            if sel and st.button("Clear All",key="clear_all_btn"):
+                st.session_state["selected_methods"]=[]; st.rerun()
         if sel:
             sel_html=" ".join(f'<span style="background:rgba(59,130,246,.15);color:#60a5fa;padding:2px 9px;border-radius:4px;font-size:.74rem">{m}</span>' for m in sel)
-            st.markdown(f'<div style="margin:7px 0">Selected: {sel_html}</div>',unsafe_allow_html=True)
-            if st.button("🗑️ Clear all"): st.session_state["selected_methods"]=[]; st.rerun()
+            st.markdown(f'<div style="margin:7px 0">Selected ({len(sel)}): {sel_html}</div>',unsafe_allow_html=True)
 
         st.markdown("---")
         has_clf=any(METHODS[m]["group"]=="classification" for m in sel)
@@ -2547,24 +2568,27 @@ if ws>=3:
                 )
             test_size = test_size_pct / 100
 
-            # Random seed option
-            _seed_c1, _seed_c2 = st.columns([3, 2])
-            with _seed_c1:
-                _use_random = st.checkbox("Random split (khong co seed co dinh)",
-                    value=st.session_state.get("_use_random_seed", False), key="_rnd_seed_chk",
-                    help="Tick = moi lan chay chia ngau nhien khac nhau. Untick = ket qua on dinh (seed=42).")
-            st.session_state["_use_random_seed"] = _use_random
-            _split_seed = None if _use_random else 42
-            with _seed_c2:
-                if not _use_random:
-                    _custom_seed = st.number_input("Seed", 0, 9999, 42, key="_custom_seed",
-                        help="Random seed: so khoi dau cho train/val split. 42=mac dinh quoc te; 12345=XLMiner/Solver Analytics dung; thay doi seed tao phan vung khac nhau.",
-    label_visibility="visible")
-                    _split_seed = int(_custom_seed)
-                else:
-                    import random as _rnd_mod
-                    st.markdown('<div style="font-size:.75rem;color:#f59e0b;padding:8px 0">Seed: ngau nhien moi lan</div>',
-                        unsafe_allow_html=True)
+            # Random seed — checkbox + dropdown
+            _seed_options = {
+                "Random (khac nhau moi lan)": None,
+                "42 — Mac dinh quoc te (on dinh, tai tao duoc)": 42,
+                "12345 — Solver Analytics / XLMiner (khop sach giao khoa)": 12345,
+                "0 — Bat dau tu so 0": 0,
+                "99 — Seed tuy chon khac": 99,
+                "123 — Seed tuy chon khac": 123,
+            }
+            _seed_sel = st.selectbox(
+                "Random Seed",
+                list(_seed_options.keys()),
+                index=0,
+                key="_seed_dropdown",
+                help="Seed quyet dinh cach chia du lieu train/validation. Chon Random = moi lan khac nhau; chon so cu the = ket qua giong nhau moi lan chay."
+            )
+            _split_seed = _seed_options[_seed_sel]
+            if _split_seed is None:
+                st.markdown('<div style="font-size:.75rem;color:#f59e0b;padding:2px 0">Moi lan chay se cho ket qua phan vung khac nhau</div>', unsafe_allow_html=True)
+            else:
+                st.markdown(f'<div style="font-size:.75rem;color:#34d399;padding:2px 0">Seed={_split_seed} — ket qua on dinh, tai tao duoc</div>', unsafe_allow_html=True)
 
             if has_clf:
                 balance_opt=st.selectbox("Class balancing",["None","Random Oversampling","SMOTE"],
@@ -2754,7 +2778,16 @@ if ws>=4:
                     st.success(f"🏆 Best regression: **{best.get('Method','')}** — R² = {best['R²']}")
                 except Exception: pass
 
-            render_fitness_report(results, df_active, st.session_state.get("user_goal",""))
+            # Simple metrics summary (no A/B/C/D grades)
+            _sum_rows=[]
+            for _r in results:
+                _m=_r.get("Method","?")
+                if "F1-Score" in _r:
+                    _sum_rows.append({"Model":_m,"Accuracy":_r.get("Val_Accuracy",_r.get("Accuracy","")),"Sensitivity":_r.get("Val_Sensitivity",_r.get("Recall","")),"Specificity":_r.get("Val_Specificity",""),"F1":_r.get("F1-Score",""),"AUC":_r.get("AUC",""),"Train rows":_r.get("Train rows",""),"Val rows":_r.get("Validation rows","")})
+                elif "R²" in _r:
+                    _sum_rows.append({"Model":_m,"R²":_r.get("R²",""),"RMSE":_r.get("RMSE",""),"Train rows":_r.get("Train rows",""),"Val rows":_r.get("Validation rows","")})
+            if _sum_rows:
+                st.dataframe(_sanitize_df(pd.DataFrame(_sum_rows)),width="stretch")
 
             # ── Hiển thị lại các biểu đồ đã lưu khi chạy model ─────────────
             saved_figs = st.session_state.get("_run_figures", {})
@@ -2894,4 +2927,55 @@ if ws>=4:
             cmp_df2=pd.DataFrame(results_exp)
             exp_sheets={}
 
-            # \u2500\u2500 Sheet 1: Raw Data (Before) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2
+            # -- Sheet 1: Raw Data
+            raw_sheet=st.session_state["sheets"].get(active_name,raw_df)
+            exp_sheets["Raw Data (Before)"]=_sanitize_df(raw_sheet.copy())
+            # -- Sheet 2: Cleaned Data
+            _prep_stack4=st.session_state["prep_transforms"].get(active_name,[])
+            if _prep_stack4:
+                exp_sheets["Cleaned Data (After)"]=_sanitize_df(_json_to_df(_prep_stack4[-1][1]))
+            else:
+                exp_sheets["Cleaned Data (same as raw)"]=_sanitize_df(raw_sheet.copy())
+            # -- Score sheets per model
+            for mname,split in st.session_state.get("_split_data",{}).items():
+                short=mname[:18].replace(" ","_")
+                if "training_score" in split:
+                    exp_sheets[f"{short}_TrainScore"]=_sanitize_df(split["training_score"].copy())
+                    exp_sheets[f"{short}_ValScore"]=_sanitize_df(split["validation_score"].copy())
+                    if not split.get("lift",pd.DataFrame()).empty:
+                        exp_sheets[f"{short}_LiftChart"]=_sanitize_df(split["lift"].copy())
+                    if not split.get("validation_details",pd.DataFrame()).empty:
+                        _vdet=split["validation_details"].copy()
+                        if len(_vdet)>200: _vdet=_vdet.head(200)
+                        exp_sheets[f"{short}_ValDetails"]=_sanitize_df(_vdet)
+            # -- Comparison Table + extras
+            exp_sheets["Comparison Table"]=cmp_df2
+            for label,df_exp in st.session_state.get("run_exports",{}).items():
+                exp_sheets[label[:31]]=df_exp
+            if st.session_state.get("comparison_ai"):
+                exp_sheets["AI Explanation"]=pd.DataFrame({"AI Explanation":st.session_state["comparison_ai"].split("\n")})
+            if st.session_state.get("ai_blueprint"):
+                exp_sheets["AI Blueprint"]=pd.DataFrame({"AI Blueprint":st.session_state["ai_blueprint"].split("\n")})
+            for mname,fi_df in st.session_state.get("_fi_tables",{}).items():
+                exp_sheets[f"FI_{mname[:22]}"]=fi_df
+            # Preview sheets
+            for sname,df_p in exp_sheets.items():
+                _clr="#10b981" if ("Cleaned" in sname or "After" in sname) else ("#ef4444" if ("Raw" in sname or "Before" in sname) else "#60a5fa")
+                _tag="CLEAN" if ("Cleaned" in sname or "After" in sname) else ("RAW" if ("Raw" in sname or "Before" in sname) else "DATA")
+                _info=f"{df_p.shape[0]:,} rows x {df_p.shape[1]} cols"
+                st.markdown(f'<div style="background:#0f1629;border:1px solid #1f2937;border-radius:7px;padding:6px 12px;margin-bottom:4px;font-size:.79rem;color:#9ca3af"><span style="color:{_clr};font-weight:700;margin-right:6px">[{_tag}]</span><b style="color:#60a5fa">{sname}</b> - {_info}</div>',unsafe_allow_html=True)
+            st.markdown("<br>",unsafe_allow_html=True)
+            figures_dict=st.session_state.get("_run_figures",{})
+            excel_bytes=export_to_excel(exp_sheets,figures_dict=figures_dict if figures_dict else None)
+            st.download_button("Download Full Results + Charts (Excel)",data=excel_bytes,
+                file_name=f"DataMineAI_{active_name[:20].replace(' ','_')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+    st.markdown("---")
+    if st.button("Start New Analysis (reset all)"):
+        for key2 in ["wizard_step","ai_blueprint","prep_transforms","prep_log","enc_mapping",
+                     "user_goal","selected_methods","run_results","run_exports","comparison_ai","ai_vn","chat_messages","_run_figures","_fi_tables","_trained_models","_split_data"]:
+            if isinstance(DEFAULTS.get(key2),dict): st.session_state[key2]={}
+            elif isinstance(DEFAULTS.get(key2),list): st.session_state[key2]=[]
+            else: st.session_state[key2]=DEFAULTS.get(key2,"")
+        st.session_state["wizard_step"]=1; st.rerun()
