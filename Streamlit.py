@@ -751,16 +751,29 @@ def _dark_fig(w=6,h=4):
     for sp in ax.spines.values(): sp.set_edgecolor('#374151')
     return fig,ax
 
-def run_classification(method,df,target,features,test_size,balance,split_seed=42):
+def run_classification(method,df,target,features,test_size,balance,split_seed=42,oversample_order="split_first"):
     df_enc=encode_df(df[features+[target]].dropna())
     scaler=StandardScaler()
     X=scaler.fit_transform(df_enc[features].values); y=df_enc[target].values
-    if balance=="Random Oversampling":
-        X,y=RandomOverSampler(random_state=42).fit_resample(X,y); st.info("✅ Applied Random Oversampling.")
-    elif balance=="SMOTE":
-        try: X,y=SMOTE(random_state=42).fit_resample(X,y); st.info("✅ Applied SMOTE.")
-        except Exception as e: st.warning(f"SMOTE skipped: {e}")
-    X_tr,X_te,y_tr,y_te=train_test_split(X,y,test_size=test_size,random_state=split_seed)
+
+    def _do_oversample(Xa,ya,method_name):
+        if method_name=="Random Oversampling":
+            Xa,ya=RandomOverSampler(random_state=42).fit_resample(Xa,ya)
+            st.info(f"✅ Random Oversampling applied: {len(ya):,} samples")
+        elif method_name=="SMOTE":
+            try: Xa,ya=SMOTE(random_state=42).fit_resample(Xa,ya); st.info(f"✅ SMOTE applied: {len(ya):,} samples")
+            except Exception as e: st.warning(f"SMOTE skipped: {e}")
+        return Xa,ya
+
+    if balance!="None" and oversample_order=="oversample_first":
+        # Oversample toàn bộ dataset TRƯỚC khi split
+        X,y=_do_oversample(X,y,balance)
+        X_tr,X_te,y_tr,y_te=train_test_split(X,y,test_size=test_size,random_state=split_seed)
+    else:
+        # Split TRƯỚC rồi oversample chỉ training set (mặc định)
+        X_tr,X_te,y_tr,y_te=train_test_split(X,y,test_size=test_size,random_state=split_seed)
+        if balance!="None":
+            X_tr,y_tr=_do_oversample(X_tr,y_tr,balance)
     models={
         "Logistic Regression":LogisticRegression(max_iter=1000, class_weight="balanced"),
         "Linear Discriminant Analysis (LDA)":LinearDiscriminantAnalysis(),
@@ -2311,6 +2324,61 @@ if ws>=2:
                 nj,msg,mapping=fix_encode(cur_json, encode_type="ordinal", ordinal_orders=_ord_orders)
                 stack.append(("🔤 Custom Ordinal",nj)); log.append(("🔤 Custom Ordinal",msg))
                 st.session_state["enc_mapping"][active_name]=mapping; detect_problems.clear(); st.rerun()
+    # ── Data Tools: head / sample / ceiling / filter ─────────────────────────
+    st.markdown("---")
+    sec_hdr("🔧","Data Tools","blue",subtitle="Cắt, lấy mẫu, làm tròn, lọc dữ liệu")
+    _dt_tab1,_dt_tab2,_dt_tab3=st.tabs(["✂️ Cắt dữ liệu","⬆️ Ceiling (làm tròn lên)","🔍 Filter theo giá trị"])
+
+    with _dt_tab1:
+        _dt_c1,_dt_c2=st.columns(2)
+        with _dt_c1:
+            _head_n=st.number_input("head(n) — Lấy n dòng đầu",1,len(cur_df),min(100,len(cur_df)),key=f"head_n_{prep_target[:6]}")
+            if st.button(f"✅ Áp dụng head({_head_n})",key=f"do_head_{prep_target[:6]}"):
+                new_df=cur_df.head(int(_head_n)).reset_index(drop=True)
+                nj=_df_to_json(new_df); lbl=f"head({_head_n})"
+                st.session_state["prep_transforms"][prep_target].append((lbl,nj))
+                st.session_state["prep_log"].setdefault(prep_target,[]).append((lbl,f"Giữ {_head_n} dòng đầu tiên, bỏ {len(cur_df)-_head_n} dòng"))
+                detect_problems.clear(); st.success(f"✅ head({_head_n}): {_head_n} dòng"); st.rerun()
+        with _dt_c2:
+            _sample_n=st.number_input("sample(n) — Lấy n dòng ngẫu nhiên",1,len(cur_df),min(100,len(cur_df)),key=f"sample_n_{prep_target[:6]}")
+            if st.button(f"✅ Áp dụng sample({_sample_n})",key=f"do_sample_{prep_target[:6]}"):
+                new_df=cur_df.sample(int(_sample_n),random_state=42).reset_index(drop=True)
+                nj=_df_to_json(new_df); lbl=f"sample({_sample_n})"
+                st.session_state["prep_transforms"][prep_target].append((lbl,nj))
+                st.session_state["prep_log"].setdefault(prep_target,[]).append((lbl,f"Lấy mẫu ngẫu nhiên {_sample_n} dòng"))
+                detect_problems.clear(); st.success(f"✅ sample({_sample_n}): {_sample_n} dòng"); st.rerun()
+
+    with _dt_tab2:
+        _num_cols_ceil=cur_df.select_dtypes(include=[np.number]).columns.tolist()
+        if not _num_cols_ceil:
+            st.info("Không có cột số trong dataset.")
+        else:
+            _ceil_cols=st.multiselect("Chọn cột số để ceiling (làm tròn lên nguyên)",_num_cols_ceil,key=f"ceil_cols_{prep_target[:6]}")
+            if _ceil_cols and st.button("✅ Áp dụng Ceiling",key=f"do_ceil_{prep_target[:6]}"):
+                new_df=cur_df.copy()
+                for _cc in _ceil_cols: new_df[_cc]=np.ceil(new_df[_cc])
+                nj=_df_to_json(new_df); lbl=f"Ceiling {len(_ceil_cols)} cols"
+                st.session_state["prep_transforms"][prep_target].append((lbl,nj))
+                st.session_state["prep_log"].setdefault(prep_target,[]).append((lbl,f"Ceiling: {', '.join(_ceil_cols)}"))
+                detect_problems.clear(); st.success(f"✅ Ceiling áp dụng cho: {', '.join(_ceil_cols)}"); st.rerun()
+
+    with _dt_tab3:
+        _f_col=st.selectbox("Chọn cột để lọc",["(chọn cột)"]+cur_df.columns.tolist(),key=f"flt_col_{prep_target[:6]}")
+        if _f_col and _f_col!="(chọn cột)":
+            _uniq=sorted(cur_df[_f_col].dropna().unique().tolist())
+            st.markdown(f"**{len(_uniq)} giá trị duy nhất:** {', '.join(str(v) for v in _uniq[:30])}{'...' if len(_uniq)>30 else ''}")
+            _f_vals=st.multiselect(f"Chọn giá trị GIỮ LẠI từ cột '{_f_col}'",_uniq,default=_uniq[:2] if len(_uniq)<=10 else [],key=f"flt_vals_{prep_target[:6]}")
+            if _f_vals:
+                _preview=cur_df[cur_df[_f_col].isin(_f_vals)]
+                st.markdown(f'<div style="font-size:.78rem;color:#34d399;margin-bottom:4px">Preview: {len(_preview):,} dòng thỏa điều kiện ({len(_preview)/len(cur_df):.1%})</div>',unsafe_allow_html=True)
+                st.dataframe(_sanitize_df(_preview.head(10)),width="stretch",height=220)
+                if st.button(f"✅ Áp dụng Filter ({len(_f_vals)} giá trị)",type="primary",key=f"do_flt_{prep_target[:6]}"):
+                    new_df=cur_df[cur_df[_f_col].isin(_f_vals)].reset_index(drop=True)
+                    nj=_df_to_json(new_df); lbl=f"Filter {_f_col}={_f_vals[:3]}"
+                    st.session_state["prep_transforms"][prep_target].append((lbl,nj))
+                    st.session_state["prep_log"].setdefault(prep_target,[]).append((lbl,f"Lọc cột '{_f_col}' giữ {_f_vals}: {len(new_df):,} dòng"))
+                    detect_problems.clear(); st.success(f"✅ Filter: giữ lại {len(new_df):,} dòng"); st.rerun()
+
     # ── Grouping & Binning (nhiều cột, tối đa 10) ────────────────────────────
     st.markdown("---")
     sec_hdr("🗂️","Grouping & Binning","amber",subtitle="Chọn tối đa 10 cột — áp dụng cùng 1 thao tác cho tất cả")
@@ -2593,7 +2661,13 @@ if ws>=3:
             if has_clf:
                 balance_opt=st.selectbox("Class balancing",["None","Random Oversampling","SMOTE"],
                     help="None: không cân bằng | Oversampling: nhân bản dữ liệu thiểu số | SMOTE: tổng hợp điểm dữ liệu mới")
+                _oversample_order="split_first"
                 if balance_opt != "None":
+                    _oversample_order=st.radio("Thu tu Oversampling",
+                        ["split_first","oversample_first"],
+                        format_func=lambda x: "Split truoc → Oversample training set (chuan)" if x=="split_first" else "Oversample truoc → Split (toan bo data duoc can bang)",
+                        horizontal=True,key="oversample_order_radio",
+                        help="split_first: an toan hon, tranh data leakage. oversample_first: training/val co ty le can bang hon.")
                     _y_check=df_active[target_col].dropna() if target_col else pd.Series()
                     if len(_y_check)>0:
                         _vc=_y_check.value_counts()
@@ -2648,7 +2722,7 @@ if ws>=3:
                 try:
                     if group=="classification":
                         if not feature_cols: st.error(f"{method}: select feature columns."); continue
-                        metrics,mdl,X_te,y_te,y_pred=run_classification(method,df_active,target_col,feature_cols,test_size,balance_opt,split_seed=_split_seed)
+                        metrics,mdl,X_te,y_te,y_pred=run_classification(method,df_active,target_col,feature_cols,test_size,balance_opt,split_seed=_split_seed,oversample_order=_oversample_order)
                         st.session_state["run_results"].append(metrics)
                         pred_df=df_active.iloc[:len(y_te)][feature_cols].copy()
                         pred_df["Actual"]=y_te; pred_df["Predicted"]=y_pred
