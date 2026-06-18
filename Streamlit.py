@@ -2327,7 +2327,7 @@ if ws>=2:
     # ── Data Tools: head / sample / ceiling / filter ─────────────────────────
     st.markdown("---")
     sec_hdr("🔧","Data Tools","blue",subtitle="Cắt, lấy mẫu, làm tròn, lọc dữ liệu")
-    _dt_tab1,_dt_tab2,_dt_tab3=st.tabs(["✂️ Cắt dữ liệu","⬆️ Ceiling (làm tròn lên)","🔍 Filter theo giá trị"])
+    _dt_tab1,_dt_tab2,_dt_tab3,_dt_tab4=st.tabs(["✂️ Cắt dữ liệu","⬆️ Ceiling (làm tròn lên)","🔍 Filter theo giá trị","⚖️ Partition (cân bằng lớp)"])
 
     with _dt_tab1:
         _dt_c1,_dt_c2=st.columns(2)
@@ -2378,6 +2378,53 @@ if ws>=2:
                     st.session_state["prep_transforms"][prep_target].append((lbl,nj))
                     st.session_state["prep_log"].setdefault(prep_target,[]).append((lbl,f"Lọc cột '{_f_col}' giữ {_f_vals}: {len(new_df):,} dòng"))
                     detect_problems.clear(); st.success(f"✅ Filter: giữ lại {len(new_df):,} dòng"); st.rerun()
+
+    with _dt_tab4:
+        st.markdown('''<div style="font-size:.82rem;color:#9ca3af;margin-bottom:10px">
+        Giữ <b>toàn bộ</b> một lớp (minority class) + <b>lấy ngẫu nhiên N dòng</b> từ lớp còn lại (majority class).
+        Thường dùng để cân bằng trước khi train — ví dụ giữ hết Personal Loan=1 + lấy 256 dòng từ Personal Loan=0.
+        </div>''', unsafe_allow_html=True)
+
+        _p_col=st.selectbox("Chọn cột phân loại (target)",["(chọn cột)"]+cur_df.columns.tolist(),key=f"pt_col_{prep_target[:6]}")
+        if _p_col and _p_col!="(chọn cột)":
+            _p_uniq=sorted(cur_df[_p_col].dropna().unique().tolist())
+            _p_counts={v:int((cur_df[_p_col]==v).sum()) for v in _p_uniq}
+            # Show class distribution
+            _dist_html=" ".join(f'<span style="background:var(--card2);border:1px solid var(--border);border-radius:5px;padding:3px 10px;font-size:.75rem;margin:2px">{v}: {n:,} dòng ({100*n/len(cur_df):.1f}%)</span>' for v,n in _p_counts.items())
+            st.markdown(f'<div style="margin-bottom:10px">{_dist_html}</div>', unsafe_allow_html=True)
+
+            _p_c1,_p_c2=st.columns(2)
+            with _p_c1:
+                _keep_class=st.selectbox("Lớp GIỮ NGUYÊN (giữ tất cả)",_p_uniq,key=f"pt_keep_{prep_target[:6]}",
+                    help="Lớp này sẽ được giữ toàn bộ (thường là minority class)")
+            with _p_c2:
+                _sample_class=[v for v in _p_uniq if v!=_keep_class]
+                if _sample_class:
+                    _sample_cls=_sample_class[0]
+                    _max_n=_p_counts.get(_sample_cls,1)
+                    _default_n=min(_p_counts.get(_keep_class,100),_max_n)
+                    _sample_n2=st.number_input(
+                        f"Số dòng lấy ngẫu nhiên từ lớp {_sample_cls}",
+                        min_value=1,max_value=_max_n,value=_default_n,
+                        key=f"pt_n_{prep_target[:6]}",
+                        help=f"Lớp {_sample_cls} có {_max_n:,} dòng. Nhập số dòng muốn giữ lại.")
+                    _keep_n=_p_counts.get(_keep_class,0)
+                    st.markdown(f'<div style="font-size:.78rem;color:#34d399;margin-top:4px">Kết quả: {_keep_n:,} (lớp {_keep_class}) + {_sample_n2:,} (lớp {_sample_cls}) = {_keep_n+_sample_n2:,} dòng</div>',unsafe_allow_html=True)
+
+                    if st.button(f"✅ Áp dụng Partition",type="primary",key=f"do_pt_{prep_target[:6]}"):
+                        _keep_df=cur_df[cur_df[_p_col]==_keep_class]
+                        _sample_df=cur_df[cur_df[_p_col]==_sample_cls].sample(int(_sample_n2),random_state=42)
+                        new_df=pd.concat([_keep_df,_sample_df]).sample(frac=1,random_state=42).reset_index(drop=True)
+                        nj=_df_to_json(new_df)
+                        lbl=f"Partition {_p_col}: keep all {_keep_class}, sample {_sample_n2} from {_sample_cls}"
+                        st.session_state["prep_transforms"][prep_target].append((lbl,nj))
+                        st.session_state["prep_log"].setdefault(prep_target,[]).append((lbl,
+                            f"Partition: giữ {_keep_n} dòng (lớp {_keep_class}) + {_sample_n2} dòng ngẫu nhiên (lớp {_sample_cls}) = {_keep_n+_sample_n2} dòng"))
+                        detect_problems.clear()
+                        st.success(f"✅ Partition: {len(new_df):,} dòng ({_keep_n} lớp {_keep_class} + {_sample_n2} lớp {_sample_cls})")
+                        st.rerun()
+            if len(_p_uniq)>2:
+                st.info("Lưu ý: Partition hoạt động tốt nhất với 2 lớp. Với nhiều lớp hơn, hãy dùng Filter trước.")
 
     # ── Grouping & Binning (nhiều cột, tối đa 10) ────────────────────────────
     st.markdown("---")
