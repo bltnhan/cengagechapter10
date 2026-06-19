@@ -210,7 +210,7 @@ from sklearn.linear_model import LogisticRegression, LinearRegression
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.tree import DecisionTreeClassifier, export_text
-from sklearn.naive_bayes import GaussianNB
+from sklearn.naive_bayes import GaussianNB, CategoricalNB
 from sklearn.svm import SVC
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.neural_network import MLPClassifier, MLPRegressor
@@ -751,7 +751,8 @@ def _dark_fig(w=6,h=4):
     for sp in ax.spines.values(): sp.set_edgecolor('#374151')
     return fig,ax
 
-def run_classification(method,df,target,features,test_size,balance,split_seed=42,oversample_order="split_first"):
+def run_classification(method,df,target,features,test_size,balance,split_seed=42,oversample_order="split_first",hyperparams=None):
+    if hyperparams is None: hyperparams={}
     df_enc=encode_df(df[features+[target]].dropna())
     scaler=StandardScaler()
     X=scaler.fit_transform(df_enc[features].values); y=df_enc[target].values
@@ -774,16 +775,56 @@ def run_classification(method,df,target,features,test_size,balance,split_seed=42
         X_tr,X_te,y_tr,y_te=train_test_split(X,y,test_size=test_size,random_state=split_seed)
         if balance!="None":
             X_tr,y_tr=_do_oversample(X_tr,y_tr,balance)
+    _hp=hyperparams
+    def _p(k,default): return _hp.get(k,default)
     models={
-        "Logistic Regression":LogisticRegression(max_iter=1000, class_weight="balanced"),
-        "Linear Discriminant Analysis (LDA)":LinearDiscriminantAnalysis(),
-        "K-Nearest Neighbors (KNN)":KNeighborsClassifier(),
-        "Classification Trees":DecisionTreeClassifier(max_depth=5, class_weight="balanced"),
-        "Naive Bayes":GaussianNB(),
-        "Support Vector Machine (SVM)":SVC(probability=True),
-        "Random Forest":RandomForestClassifier(n_estimators=100, random_state=42, class_weight="balanced"),
-        "Neural Networks (MLP)":MLPClassifier(max_iter=500,random_state=42),
+        "Logistic Regression":LogisticRegression(max_iter=1000,class_weight="balanced",
+            C=_p("C",1.0),penalty=_p("penalty","l2"),solver=_p("solver","lbfgs") if _p("penalty","l2")!="l1" else "liblinear"),
+        "Linear Discriminant Analysis (LDA)":LinearDiscriminantAnalysis(
+            solver=_p("solver","svd"),
+            shrinkage="auto" if _p("shrinkage","None")=="auto" and _p("solver","svd")!="svd" else None),
+        "K-Nearest Neighbors (KNN)":KNeighborsClassifier(
+            n_neighbors=int(_p("n_neighbors",3)),weights=_p("weights","uniform"),metric=_p("metric","minkowski")),
+        "Classification Trees":DecisionTreeClassifier(
+            max_depth=int(_p("max_depth",5)),class_weight="balanced",
+            min_samples_leaf=int(_p("min_samples_leaf",1)),criterion=_p("criterion","gini")),
+        "Naive Bayes":GaussianNB(),  # may be overridden below
+        "Support Vector Machine (SVM)":SVC(probability=True,
+            C=_p("C",1.0),kernel=_p("kernel","rbf"),gamma=_p("gamma","scale")),
+        "Random Forest":RandomForestClassifier(
+            n_estimators=int(_p("n_estimators",100)),random_state=42,class_weight="balanced",
+            max_depth=int(_p("max_depth",0)) if int(_p("max_depth",0))>0 else None,
+            min_samples_leaf=int(_p("min_samples_leaf",1))),
+        "Neural Networks (MLP)":MLPClassifier(max_iter=500,random_state=42,
+            hidden_layer_sizes=_p("hidden_layer_sizes",(100,)),
+            activation=_p("activation","relu"),
+            learning_rate_init=_p("learning_rate_init",0.001)),
     }
+    # Auto-detect: dùng CategoricalNB nếu features là integer (binned data), GaussianNB nếu continuous
+    if method == "Naive Bayes":
+        _alpha_nb = _p("laplace_alpha", 1.0)
+        _prior_nb = _p("prior_type", "empirical")
+        _is_binned = all(pd.api.types.is_integer_dtype(df_enc[c]) or
+                         (pd.api.types.is_float_dtype(df_enc[c]) and df_enc[c].dropna().apply(float.is_integer).all())
+                         for c in features)
+        if _is_binned:
+            try:
+                # Shift to 0-based for CategoricalNB
+                _X_cat = (scaler.inverse_transform(X_tr) if hasattr(scaler,"inverse_transform") else X_tr).astype(int)
+                _X_cat_te = (scaler.inverse_transform(X_te) if hasattr(scaler,"inverse_transform") else X_te).astype(int)
+                _X_cat = np.clip(_X_cat - _X_cat.min(axis=0), 0, None)
+                _X_cat_te = np.clip(_X_cat_te - _X_cat.min(axis=0), 0, None)
+                _nb_cat = CategoricalNB(alpha=_alpha_nb)
+                _nb_cat.fit(_X_cat, y_tr)
+                models["Naive Bayes"] = _nb_cat
+                st.info(f"Naive Bayes: dung CategoricalNB (data da bin, alpha={_alpha_nb})")
+            except Exception as _e:
+                st.warning(f"CategoricalNB fallback to GaussianNB: {_e}")
+                models["Naive Bayes"] = GaussianNB(var_smoothing=1e-9)
+        else:
+            models["Naive Bayes"] = GaussianNB(var_smoothing=float(_p("var_smoothing", 1e-9)))
+            st.info(f"Naive Bayes: dung GaussianNB (du lieu continuous)")
+
     # Auto-adjust for class imbalance
     _classes, _counts = np.unique(y_tr, return_counts=True)
     _imbalance_ratio = _counts.max() / _counts.min() if len(_counts)>1 else 1
@@ -2726,6 +2767,53 @@ if ws>=3:
                             if balance_opt == "SMOTE":
                                 st.warning("🔴 **Cảnh báo SMOTE**: Dữ liệu rất mất cân bằng + SMOTE có nguy cơ **overfitting** — SMOTE tạo điểm tổng hợp dựa trên minority samples gốc, nếu tập quá nhỏ sẽ tạo ra overlap. Kiểm tra AUC trên validation set thực.")
 
+        # ── Hyperparameter Settings (advanced) ──────────────────────────────────
+        if sel:
+            with st.expander("⚙️ Hyperparameter Settings", expanded=True):
+                st.markdown('<div style="font-size:.78rem;color:#9ca3af;margin-bottom:8px">Tinh chỉnh tham số cho từng model. Bỏ trống = dùng giá trị mặc định.</div>', unsafe_allow_html=True)
+                _hp={}  # {method: {param: value}}
+                for _m in sel:
+                    _grp=METHODS[_m]["group"]
+                    if _grp not in ("classification","prediction"): continue
+                    st.markdown(f'<div style="font-size:.82rem;font-weight:700;color:#60a5fa;margin:10px 0 4px">⚙ {_m}</div>', unsafe_allow_html=True)
+                    _hp[_m]={}
+                    _hc=st.columns(3)
+                    if _m=="Logistic Regression":
+                        with _hc[0]: _hp[_m]["C"]=st.number_input("C (regularization)",0.001,100.0,1.0,key=f"hp_C_{_m[:6]}",help="Nhỏ=regularize mạnh, lớn=fit sát data")
+                        with _hc[1]: _hp[_m]["penalty"]=st.selectbox("Penalty",["l2","l1","none"],key=f"hp_pen_{_m[:6]}")
+                        with _hc[2]: _hp[_m]["solver"]=st.selectbox("Solver",["lbfgs","liblinear","saga"],key=f"hp_sol_{_m[:6]}")
+                    elif _m=="K-Nearest Neighbors (KNN)":
+                        with _hc[0]: _hp[_m]["n_neighbors"]=st.number_input("k (số láng giềng)",1,50,5,key=f"hp_k_{_m[:6]}",help="k=1: overfit, k lớn: underfit. Thường chọn 3-10")
+                        with _hc[1]: _hp[_m]["weights"]=st.selectbox("Weights",["uniform","distance"],key=f"hp_w_{_m[:6]}",help="distance: láng giềng gần hơn có trọng số cao hơn")
+                        with _hc[2]: _hp[_m]["metric"]=st.selectbox("Metric",["minkowski","euclidean","manhattan"],key=f"hp_met_{_m[:6]}")
+                    elif _m=="Classification Trees":
+                        with _hc[0]: _hp[_m]["max_depth"]=st.number_input("max_depth",1,50,5,key=f"hp_md_{_m[:6]}",help="Sâu hơn=fit tốt hơn nhưng overfit hơn. 3-10 thường tốt")
+                        with _hc[1]: _hp[_m]["min_samples_leaf"]=st.number_input("min_samples_leaf",1,100,5,key=f"hp_msl_{_m[:6]}",help="Số mẫu tối thiểu ở leaf. Lớn hơn=ít overfit hơn")
+                        with _hc[2]: _hp[_m]["criterion"]=st.selectbox("Criterion",["gini","entropy","log_loss"],key=f"hp_crit_{_m[:6]}")
+                    elif _m=="Support Vector Machine (SVM)":
+                        with _hc[0]: _hp[_m]["C"]=st.number_input("C",0.001,100.0,1.0,key=f"hp_svm_C_{_m[:6]}",help="Lớn=ít margin, fit sát; Nhỏ=margin rộng, generalize tốt")
+                        with _hc[1]: _hp[_m]["kernel"]=st.selectbox("Kernel",["rbf","linear","poly","sigmoid"],key=f"hp_kern_{_m[:6]}",help="rbf: non-linear tốt nhất; linear: nhanh và interpretable")
+                        with _hc[2]: _hp[_m]["gamma"]=st.selectbox("Gamma",["scale","auto"],key=f"hp_gam_{_m[:6]}")
+                    elif _m=="Random Forest":
+                        with _hc[0]: _hp[_m]["n_estimators"]=st.number_input("n_estimators",10,500,100,step=10,key=f"hp_ne_{_m[:6]}",help="Số cây. Nhiều hơn=ổn định hơn nhưng chậm hơn")
+                        with _hc[1]: _hp[_m]["max_depth"]=st.number_input("max_depth (0=không giới hạn)",0,50,0,key=f"hp_rf_md_{_m[:6]}")
+                        with _hc[2]: _hp[_m]["min_samples_leaf"]=st.number_input("min_samples_leaf",1,50,1,key=f"hp_rf_msl_{_m[:6]}")
+                    elif "Neural Networks" in _m:
+                        with _hc[0]: 
+                            _layers_str=st.text_input("hidden_layer_sizes","100,50",key=f"hp_hl_{_m[:6]}",help="VD: 100,50 = 2 lớp ẩn 100 và 50 nodes. Nhiều layer=phức tạp hơn")
+                            try: _hp[_m]["hidden_layer_sizes"]=tuple(int(x) for x in _layers_str.split(",") if x.strip())
+                            except: _hp[_m]["hidden_layer_sizes"]=(100,)
+                        with _hc[1]: _hp[_m]["activation"]=st.selectbox("Activation",["relu","tanh","logistic"],key=f"hp_act_{_m[:6]}")
+                        with _hc[2]: _hp[_m]["learning_rate_init"]=st.number_input("Learning rate",0.0001,0.1,0.001,format="%.4f",key=f"hp_lr_{_m[:6]}")
+                    elif _m=="Naive Bayes":
+                        with _hc[0]: _hp[_m]["laplace_alpha"]=st.number_input("Laplace alpha",0.0,10.0,1.0,key=f"hp_nba_{_m[:6]}",help="0=no smoothing, 1=Laplace (XLMiner default). Tranh P=0 khi co class chua thay trong training")
+                        with _hc[1]: _hp[_m]["prior_type"]=st.selectbox("Prior",["empirical","uniform"],key=f"hp_nbp_{_m[:6]}",help="empirical=theo tan so training (XLMiner default); uniform=moi class bang nhau")
+                        with _hc[2]: _hp[_m]["var_smoothing"]=st.number_input("var_smoothing (GaussianNB)",0.0,1.0,1e-9,format="%.2e",key=f"hp_nbv_{_m[:6]}",help="Chi dung khi du lieu continuous (GaussianNB)")
+                    elif _m=="Linear Discriminant Analysis (LDA)":
+                        with _hc[0]: _hp[_m]["solver"]=st.selectbox("Solver",["svd","lsqr","eigen"],key=f"hp_lda_sol_{_m[:6]}",help="lsqr/eigen hỗ trợ shrinkage; svd nhanh hơn")
+                        with _hc[1]: _hp[_m]["shrinkage"]=st.selectbox("Shrinkage",["None","auto"],key=f"hp_shrink_{_m[:6]}",help="auto=tự tính, giúp tránh overfit khi nhiều features")
+                st.session_state["_hyperparams"]=_hp
+
         if has_clus:
             sec_hdr("⚙️","Configure Clustering","green")
             cc1,cc2=st.columns(2)
@@ -2769,7 +2857,7 @@ if ws>=3:
                 try:
                     if group=="classification":
                         if not feature_cols: st.error(f"{method}: select feature columns."); continue
-                        metrics,mdl,X_te,y_te,y_pred=run_classification(method,df_active,target_col,feature_cols,test_size,balance_opt,split_seed=_split_seed,oversample_order=_oversample_order)
+                        metrics,mdl,X_te,y_te,y_pred=run_classification(method,df_active,target_col,feature_cols,test_size,balance_opt,split_seed=_split_seed,oversample_order=_oversample_order,hyperparams=st.session_state.get("_hyperparams",{}).get(method,{}))
                         st.session_state["run_results"].append(metrics)
                         pred_df=df_active.iloc[:len(y_te)][feature_cols].copy()
                         pred_df["Actual"]=y_te; pred_df["Predicted"]=y_pred
