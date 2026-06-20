@@ -72,7 +72,8 @@ def _job_response(job: Job) -> dict:
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "datamine-api", "version": app.version,
-            "queue_mode": "async (redis+worker)" if is_async() else "inline (dev/fakeredis)"}
+            "queue_mode": "async (redis+worker)" if is_async() else "inline (dev/fakeredis)",
+            "store_backend": "redis" if is_async() else "fakeredis (dev)"}
 
 
 # ── STEP 1: upload ───────────────────────────────────────────────────────────
@@ -124,16 +125,17 @@ def apply_prep(dataset_id: str, req: PrepRequest):
         new_df, msg, enc_mapping = prep.fix_encode(df, req.encode_type, req.ordinal_orders)
     else:  # pragma: no cover — pydantic Literal đã chặn
         raise HTTPException(status_code=422, detail=f"op không hợp lệ: {req.op}")
-    store.apply_transform(ds.id, msg, new_df, enc_mapping)
-    return {"message": msg, **dataset_summary(ds, prep),
-            "problems": prep.detect_problems(ds.df)}
+    # store là Redis → dùng Dataset TRẢ VỀ (object 'ds' cũ đã stale)
+    updated = store.apply_transform(ds.id, msg, new_df, enc_mapping)
+    return {"message": msg, **dataset_summary(updated, prep),
+            "problems": prep.detect_problems(updated.df)}
 
 
 @app.post("/datasets/{dataset_id}/undo")
 def undo_prep(dataset_id: str):
     ds = _get_ds(dataset_id)
-    store.undo(ds.id)
-    return dataset_summary(ds, prep)
+    updated = store.undo(ds.id)
+    return dataset_summary(updated, prep)
 
 
 # ── STEP 3: run ML (enqueue → job) ───────────────────────────────────────────

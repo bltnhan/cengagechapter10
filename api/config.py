@@ -27,5 +27,9 @@ class Settings:
     job_timeout: int = int(os.getenv("JOB_TIMEOUT", "600"))      # giây cho 1 job ML
     job_result_ttl: int = int(os.getenv("JOB_RESULT_TTL", "3600"))  # giữ kết quả để export
 
+    # ── Dataset store (Redis — để web scale nhiều replica) ──
+    redis_key_prefix: str = os.getenv("REDIS_KEY_PREFIX", "dm")
+    dataset_ttl: int = int(os.getenv("DATASET_TTL", "86400"))    # 24h — dataset hết hạn nếu không dùng
+
 
 settings = Settings()
