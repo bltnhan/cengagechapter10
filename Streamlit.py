@@ -2770,9 +2770,18 @@ if ws>=3:
         # ── Hyperparameter Settings (advanced) ──────────────────────────────────
         if sel:
             with st.expander("⚙️ Hyperparameter Settings", expanded=True):
-                st.markdown('<div style="font-size:.78rem;color:#9ca3af;margin-bottom:8px">Tinh chỉnh tham số cho từng model. Bỏ trống = dùng giá trị mặc định.</div>', unsafe_allow_html=True)
+                _use_solver_defaults=st.toggle("Dung cai dat mac dinh Solver Analytics (khuyen nghi)",
+                    value=st.session_state.get("_use_solver_defaults",True),key="_solver_toggle",
+                    help="ON: Dung params giong Solver Analytics (KNN k=3, NB alpha=1, Categorical NB khi da bin). OFF: Tu chinh tung tham so.")
+                st.session_state["_use_solver_defaults"]=_use_solver_defaults
+                if _use_solver_defaults:
+                    st.markdown('<div style="background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.25);border-radius:7px;padding:8px 12px;font-size:.78rem;color:#34d399;margin-bottom:8px">Dang dung cai dat Solver Analytics: KNN k=3, NB CategoricalNB alpha=1, KNN uniform, LDA svd, Trees max_depth=5</div>', unsafe_allow_html=True)
+                    st.session_state["_hyperparams"]={}  # Reset to defaults
+                else:
+                    st.markdown('<div style="font-size:.78rem;color:#9ca3af;margin-bottom:8px">Che do tuy chinh: Tinh chinh tham so cho tung model duoi day.</div>', unsafe_allow_html=True)
                 _hp={}  # {method: {param: value}}
-                for _m in sel:
+                if not _use_solver_defaults:
+                 for _m in sel:
                     _grp=METHODS[_m]["group"]
                     if _grp not in ("classification","prediction"): continue
                     st.markdown(f'<div style="font-size:.82rem;font-weight:700;color:#60a5fa;margin:10px 0 4px">⚙ {_m}</div>', unsafe_allow_html=True)
