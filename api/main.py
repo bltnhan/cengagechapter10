@@ -89,9 +89,13 @@ BALANCE_OPTIONS = ["None", "Random Oversampling", "SMOTE"]
 
 @app.get("/", response_class=HTMLResponse)
 def root():
-    if _UI_HTML:
-        return HTMLResponse(_UI_HTML)
-    return RedirectResponse(url="/docs")  # fallback nếu thiếu web/index.html
+    try:
+        html = (Path(__file__).resolve().parent.parent / "web" / "index.html").read_text(encoding="utf-8")
+        return HTMLResponse(html)
+    except Exception:
+        if _UI_HTML:
+            return HTMLResponse(_UI_HTML)
+        return RedirectResponse(url="/docs")  # fallback nếu thiếu web/index.html
 
 
 @app.get("/meta")
