@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>DataMine AI</title>
+<style>
+  :root{
+    --bg:#0a0e1a; --panel:#111827; --panel2:#0f1629; --border:#1f2937;
+    --txt:#e5e7eb; --muted:#9ca3af; --blue:#60a5fa; --blue2:#3b82f6; --blued:#1d4ed8;
+    --green:#34d399; --green2:#10b981; --red:#f87171; --amber:#fbbf24;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font-family:Inter,system-ui,Segoe UI,Roboto,sans-serif;font-size:14px}
+  a{color:var(--blue)}
+  .wrap{max-width:1200px;margin:0 auto;padding:18px 22px}
+  .topbar{display:flex;align-items:center;gap:14px;border-bottom:1px solid var(--border);padding-bottom:14px;margin-bottom:18px}
+  .logo{width:42px;height:42px;border-radius:11px;background:linear-gradient(135deg,#1d4ed8,#7c3aed);display:flex;align-items:center;justify-content:center;font-size:1.4rem}
+  .title{font-size:1.3rem;font-weight:700}
+  .sub{font-size:.74rem;color:var(--muted)}
+  .badge{margin-left:auto;font-size:.66rem;font-weight:700;padding:3px 10px;border-radius:20px;background:linear-gradient(135deg,#1d4ed8,#7c3aed)}
+  .hpill{font-size:.7rem;color:var(--muted);margin-left:10px}
+  .hpill b{color:var(--green)}
+  /* stepper */
+  .stepper{display:flex;align-items:center;background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:14px 22px;margin-bottom:18px}
+  .step{display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;flex:0 0 auto}
+  .scirc{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.78rem;background:#1f2937;color:#4b5563;border:2px solid #374151}
+  .step.active .scirc{background:linear-gradient(135deg,#1d4ed8,#3b82f6);color:#fff;border-color:#3b82f6;box-shadow:0 0 14px rgba(59,130,246,.4)}
+  .step.done .scirc{background:linear-gradient(135deg,#065f46,#10b981);color:#fff;border-color:#10b981}
+  .slbl{font-size:.68rem;font-weight:600;color:#6b7280;white-space:nowrap}
+  .step.active .slbl{color:var(--blue)} .step.done .slbl{color:var(--green)}
+  .sconn{flex:1;height:2px;background:#1f2937;margin:0 8px 18px}
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:16px;display:none}
+  .panel.show{display:block}
+  h2{font-size:1rem;margin:0 0 12px}
+  h3{font-size:.85rem;color:var(--blue);margin:16px 0 8px}
+  label{display:block;font-size:.72rem;color:var(--muted);margin:10px 0 4px;text-transform:uppercase;letter-spacing:.04em}
+  input,select,textarea{background:#0b1220;color:var(--txt);border:1px solid #374151;border-radius:8px;padding:8px 10px;font-size:.85rem;width:100%}
+  textarea{min-height:80px;resize:vertical}
+  .row{display:flex;gap:14px;flex-wrap:wrap}
+  .row>div{flex:1;min-width:160px}
+  button{background:linear-gradient(135deg,#2563eb,#3b82f6);color:#fff;border:0;border-radius:8px;font-weight:600;padding:9px 16px;cursor:pointer;font-size:.84rem}
+  button:hover{opacity:.88} button:disabled{opacity:.45;cursor:not-allowed}
+  button.sec{background:#1f2937;border:1px solid #374151}
+  button.green{background:linear-gradient(135deg,#065f46,#10b981)}
+  button.sm{padding:5px 10px;font-size:.76rem}
+  .btnrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+  .muted{color:var(--muted)}
+  .card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin:8px 0}
+  .stat{background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:12px 14px}
+  .stat .v{font-size:1.15rem;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--blue)}
+  .stat .k{font-size:.66rem;color:var(--muted);text-transform:uppercase;margin-top:3px}
+  table.dt{border-collapse:collapse;width:100%;font-size:.78rem;margin:6px 0;display:block;overflow:auto;max-height:340px}
+  table.dt th{position:sticky;top:0;background:#0b1220;color:#94a3b8;text-align:left;padding:6px 9px;border:1px solid var(--border);font-weight:600;white-space:nowrap}
+  table.dt td{padding:5px 9px;border:1px solid var(--border);white-space:nowrap}
+  .prob{display:flex;gap:10px;align-items:flex-start;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:8px 11px;margin-bottom:6px}
+  .chip{font-size:.62rem;font-weight:700;padding:2px 7px;border-radius:5px;white-space:nowrap;text-transform:uppercase}
+  .chip.err{background:rgba(239,68,68,.2);color:var(--red)} .chip.warn{background:rgba(245,158,11,.2);color:var(--amber)}
+  .chip.info{background:rgba(59,130,246,.2);color:var(--blue)} .chip.ok{background:rgba(16,185,129,.2);color:var(--green)}
+  .note{padding:6px 11px;border-radius:0 6px 6px 0;margin-bottom:5px;font-size:.8rem}
+  .note.info{background:rgba(59,130,246,.08);border-left:3px solid var(--blue2)}
+  .note.success{background:rgba(16,185,129,.08);border-left:3px solid var(--green2)}
+  .note.warning{background:rgba(245,158,11,.08);border-left:3px solid var(--amber)}
+  .note.error{background:rgba(239,68,68,.08);border-left:3px solid var(--red)}
+  figure{margin:0 0 14px} figure img{max-width:100%;border:1px solid var(--border);border-radius:8px;background:#0d1117}
+  figcaption{font-size:.72rem;color:var(--muted);margin-top:4px}
+  .feat-box{max-height:160px;overflow:auto;border:1px solid #374151;border-radius:8px;padding:8px;background:#0b1220}
+  .feat-box label{display:flex;align-items:center;gap:7px;text-transform:none;margin:3px 0;color:var(--txt);font-size:.82rem}
+  .feat-box input{width:auto}
+  #log{font-size:.76rem;color:var(--muted);background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:8px 11px;margin-top:12px;max-height:120px;overflow:auto;white-space:pre-wrap}
+  .hide{display:none}
+  .spinner{display:inline-block;width:13px;height:13px;border:2px solid #374151;border-top-color:var(--blue);border-radius:50%;animation:spin .8s linear infinite;vertical-align:-2px;margin-right:6px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <div class="logo">🧬</div>
+    <div>
+      <div class="title">DataMine AI</div>
+      <div class="sub">Upload · Prep · Profile · Predict — FastAPI + Redis + worker</div>
+    </div>
+    <span class="hpill" id="health">checking…</span>
+    <span class="badge">WEB UI</span>
+    <a class="hpill" href="/docs" target="_blank">API /docs ↗</a>
+  </div>
+
+  <div class="stepper" id="stepper">
+    <div class="step active" data-step="1"><div class="scirc">1</div><div class="slbl">Load Data</div></div>
+    <div class="sconn"></div>
+    <div class="step" data-step="2"><div class="scirc">2</div><div class="slbl">Prep Data</div></div>
+    <div class="sconn"></div>
+    <div class="step" data-step="3"><div class="scirc">3</div><div class="slbl">Analysis & Run</div></div>
+    <div class="sconn"></div>
+    <div class="step" data-step="4"><div class="scirc">4</div><div class="slbl">Results & AI</div></div>
+  </div>
+
+  <!-- STEP 1 -->
+  <section class="panel show" id="p1">
+    <h2>① Load Data</h2>
+    <p class="muted">Upload CSV / Excel / JSON. Tối đa 200MB. File được nạp lên API (Railway) và lưu trong Redis store.</p>
+    <div class="row">
+      <div style="flex:2"><label>File</label><input type="file" id="file" accept=".csv,.xlsx,.xls,.xlsm,.json,.txt" /></div>
+      <div><label>Dòng header (0 = đầu tiên)</label><input type="number" id="header" value="0" min="0" /></div>
+    </div>
+    <div class="btnrow"><button id="btnUpload">⬆ Upload</button></div>
+    <div id="ds-info"></div>
+  </section>
+
+  <!-- STEP 2 -->
+  <section class="panel" id="p2">
+    <h2>② Prep Data</h2>
+    <p class="muted">Phát hiện & xử lý vấn đề: thiếu giá trị, trùng lặp, outlier, mã hoá. Mỗi bước có thể Undo.</p>
+    <div class="btnrow">
+      <button class="sm" data-op="missing">Fix Missing</button>
+      <button class="sm" data-op="duplicates">Remove Duplicates</button>
+      <button class="sm" data-op="outliers">Cap Outliers (3·IQR)</button>
+      <button class="sm" data-op="remove_outliers">Remove Outlier Rows</button>
+      <button class="sm" data-op="encode" data-enc="ordinal">Encode Ordinal</button>
+      <button class="sm" data-op="encode" data-enc="nominal">Encode One-Hot</button>
+      <button class="sm sec" id="btnUndo">↶ Undo</button>
+    </div>
+    <h3>Vấn đề phát hiện</h3>
+    <div id="problems"></div>
+    <h3>Xem trước dữ liệu</h3>
+    <div id="prep-preview"></div>
+    <div class="btnrow"><button id="toStep3">Tiếp tục → Analysis</button></div>
+  </section>
+
+  <!-- STEP 3 -->
+  <section class="panel" id="p3">
+    <h2>③ Analysis & Run</h2>
+    <div class="row">
+      <div><label>Task</label><select id="task"></select></div>
+      <div id="wrap-method"><label>Thuật toán</label><select id="method"></select></div>
+      <div id="wrap-target"><label>Target (cột nhãn)</label><select id="target"></select></div>
+    </div>
+    <div class="row">
+      <div id="wrap-testsize"><label>Test size</label><input type="number" id="testsize" value="0.3" step="0.05" min="0.1" max="0.5" /></div>
+      <div id="wrap-balance"><label>Class balancing</label><select id="balance"></select></div>
+      <div id="wrap-nclusters" class="hide"><label>Số cụm (K)</label><input type="number" id="nclusters" value="3" min="2" max="10" /></div>
+    </div>
+    <div class="row" id="wrap-assoc">
+      <div><label>Min support</label><input type="number" id="minsup" value="0.05" step="0.01" min="0.01" max="1" /></div>
+      <div><label>Min confidence</label><input type="number" id="minconf" value="0.3" step="0.05" min="0" max="1" /></div>
+      <div><label>Min lift</label><input type="number" id="minlift" value="1.0" step="0.1" min="0" /></div>
+    </div>
+    <div id="wrap-features"><label>Features</label><div class="feat-box" id="features"></div></div>
+    <div class="btnrow"><button id="btnRun">▶ Run</button></div>
+    <div id="run-status"></div>
+  </section>
+
+  <!-- STEP 4 -->
+  <section class="panel" id="p4">
+    <h2>④ Results & AI</h2>
+    <div id="results"><p class="muted">Chưa có kết quả. Chạy một mô hình ở bước 3.</p></div>
+    <h3>💬 Hỏi AI</h3>
+    <p class="muted">Cần GEMINI_KEY/OPENROUTER_KEY đặt trên service web (env) để có câu trả lời.</p>
+    <textarea id="aiPrompt" placeholder="Ví dụ: Giải thích kết quả Random Forest ở trên..."></textarea>
+    <div class="btnrow"><button id="btnAsk" class="sec">Gửi</button></div>
+    <div id="aiAnswer"></div>
+  </section>
+
+  <div id="log"></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+let META = null, DS = null, LASTJOB = null;
+
+function log(msg){ const l=$('log'); l.textContent = '• '+msg+'\n'+l.textContent; }
+async function api(path, opts){
+  const r = await fetch(path, opts);
+  const ct = r.headers.get('content-type')||'';
+  const body = ct.includes('json') ? await r.json() : await r.text();
+  if(!r.ok){ throw new Error((body && body.detail) ? JSON.stringify(body.detail) : (typeof body==='string'?body:r.status)); }
+  return body;
+}
+function tableHTML(t){
+  if(!t || !t.columns) return '';
+  let h='<table class="dt"><thead><tr>'+t.columns.map(c=>`<th>${esc(c)}</th>`).join('')+'</tr></thead><tbody>';
+  for(const row of (t.data||[])) h+='<tr>'+row.map(v=>`<td>${v==null?'':esc(v)}</td>`).join('')+'</tr>';
+  return h+'</tbody></table>';
+}
+
+/* ── stepper ── */
+function gotoStep(n){
+  for(let i=1;i<=4;i++){ $('p'+i).classList.toggle('show', i===n); }
+  document.querySelectorAll('.step').forEach(s=>{
+    const d=+s.dataset.step; s.classList.toggle('active', d===n); s.classList.toggle('done', d<n);
+  });
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+document.querySelectorAll('.step').forEach(s=> s.addEventListener('click', ()=>{
+  const n=+s.dataset.step;
+  if(n>1 && !DS){ log('Hãy upload dữ liệu trước.'); return; }
+  gotoStep(n);
+}));
+
+/* ── health + meta ── */
+async function init(){
+  try{ const h=await api('/health'); $('health').innerHTML = `API <b>${h.status}</b> · ${h.queue_mode}`; }
+  catch(e){ $('health').textContent='API không phản hồi'; }
+  try{
+    META = await api('/meta');
+    $('task').innerHTML = META.tasks.map(t=>`<option>${t}</option>`).join('');
+    $('balance').innerHTML = META.balance.map(b=>`<option>${b}</option>`).join('');
+    onTaskChange();
+  }catch(e){ log('Lỗi tải /meta: '+e.message); }
+}
+function renderDatasetInfo(){
+  $('ds-info').innerHTML = `
+    <h3>Dataset</h3>
+    <div class="card-grid">
+      <div class="stat"><div class="v">${DS.shape[0]}</div><div class="k">Rows</div></div>
+      <div class="stat"><div class="v">${DS.shape[1]}</div><div class="k">Columns</div></div>
+      <div class="stat"><div class="v">${esc(DS.suggested_target||'—')}</div><div class="k">Suggested target</div></div>
+    </div>
+    <div class="muted" style="font-size:.78rem;margin:6px 0">${esc(DS.name)}</div>
+    ${tableHTML(DS.preview)}
+    <div class="btnrow"><button id="toStep2">Tiếp tục → Prep</button></div>`;
+  $('toStep2').addEventListener('click', ()=>{ gotoStep(2); loadProblems(); });
+}
+
+/* ── step 1: upload ── */
+$('btnUpload').addEventListener('click', async ()=>{
+  const f = $('file').files[0];
+  if(!f){ log('Chọn file trước.'); return; }
+  const b=$('btnUpload'); b.disabled=true; b.innerHTML='<span class="spinner"></span>Uploading…';
+  try{
+    const fd=new FormData(); fd.append('file', f); fd.append('header_row', $('header').value||'0');
+    DS = await api('/datasets', {method:'POST', body:fd});
+    log(`Đã nạp ${DS.name} (${DS.shape[0]}×${DS.shape[1]}), id=${DS.dataset_id}`);
+    renderDatasetInfo(); fillColumns();
+  }catch(e){ log('Upload lỗi: '+e.message); alert('Upload lỗi: '+e.message); }
+  finally{ b.disabled=false; b.textContent='⬆ Upload'; }
+});
+
+/* ── step 2: prep ── */
+async function loadProblems(){
+  try{
+    const r = await api(`/datasets/${DS.dataset_id}/problems`);
+    $('problems').innerHTML = r.problems.map(p=>`
+      <div class="prob"><span class="chip ${p.sev}">${esc(p.type)}</span>
+        <div><div>${esc(p.msg)}</div>${p.fix?`<div class="muted" style="font-size:.72rem">→ ${esc(p.fix)}</div>`:''}</div></div>`).join('');
+    $('prep-preview').innerHTML = tableHTML(DS.preview);
+  }catch(e){ log('Lỗi /problems: '+e.message); }
+}
+document.querySelectorAll('#p2 button[data-op]').forEach(btn=> btn.addEventListener('click', async ()=>{
+  const op=btn.dataset.op, body={op}; if(op==='encode') body.encode_type=btn.dataset.enc;
+  btn.disabled=true;
+  try{
+    const r = await api(`/datasets/${DS.dataset_id}/prep`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    DS = r; log('Prep: '+r.message); renderAfterPrep(r);
+  }catch(e){ log('Prep lỗi: '+e.message); alert('Prep lỗi: '+e.message); }
+  finally{ btn.disabled=false; }
+}));
+$('btnUndo').addEventListener('click', async ()=>{
+  try{ const r=await api(`/datasets/${DS.dataset_id}/undo`,{method:'POST'}); DS=r; log('Undo. history='+r.history_len); renderAfterPrep(r); loadProblems(); }
+  catch(e){ log('Undo lỗi: '+e.message); }
+});
+function renderAfterPrep(r){
+  $('prep-preview').innerHTML = tableHTML(r.preview);
+  if(r.problems){ $('problems').innerHTML = r.problems.map(p=>`
+      <div class="prob"><span class="chip ${p.sev}">${esc(p.type)}</span><div>${esc(p.msg)}</div></div>`).join(''); }
+  fillColumns();
+}
+$('toStep3').addEventListener('click', ()=>{ fillColumns(); gotoStep(3); });
+
+/* ── step 3: run config ── */
+function fillColumns(){
+  const cols = DS.columns||[];
+  $('target').innerHTML = cols.map(c=>`<option ${c===DS.suggested_target?'selected':''}>${esc(c)}</option>`).join('');
+  renderFeatures();
+}
+function renderFeatures(){
+  const cols=DS.columns||[], tgt=$('target').value;
+  $('features').innerHTML = cols.map(c=>`<label><input type="checkbox" value="${esc(c)}" ${c!==tgt?'checked':''}>${esc(c)}</label>`).join('');
+}
+function selectedFeatures(){ return [...document.querySelectorAll('#features input:checked')].map(i=>i.value); }
+function onTaskChange(){
+  const task=$('task').value;
+  const methods=(META.methods[task]||[]);
+  $('method').innerHTML = methods.map(m=>`<option>${esc(m)}</option>`).join('');
+  $('wrap-method').classList.toggle('hide', methods.length===0);
+  const isAssoc = task==='association', isClu = task==='clustering', isClf=task==='classification';
+  $('wrap-target').classList.toggle('hide', isAssoc||isClu);
+  $('wrap-testsize').classList.toggle('hide', isAssoc||isClu);
+  $('wrap-balance').classList.toggle('hide', !isClf);
+  $('wrap-nclusters').classList.toggle('hide', !isClu);
+  $('wrap-assoc').classList.toggle('hide', !isAssoc);
+  $('wrap-features').classList.toggle('hide', isAssoc);
+}
+$('task').addEventListener('change', onTaskChange);
+$('target').addEventListener('change', renderFeatures);
+
+$('btnRun').addEventListener('click', async ()=>{
+  const task=$('task').value;
+  const body={task, method:$('method').value,
+    test_size:parseFloat($('testsize').value), balance:$('balance').value,
+    n_clusters:parseInt($('nclusters').value),
+    min_support:parseFloat($('minsup').value), min_confidence:parseFloat($('minconf').value), min_lift:parseFloat($('minlift').value)};
+  if(task!=='association' && task!=='clustering') body.target=$('target').value;
+  if(task!=='association') body.features=selectedFeatures();
+  $('run-status').innerHTML='<span class="spinner"></span>Đang enqueue…';
+  try{
+    const j = await api(`/datasets/${DS.dataset_id}/run`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    log(`Enqueue job ${j.job_id} (${j.status})`);
+    const fin = await pollJob(j.job_id);
+    LASTJOB = fin.job_id;
+    $('run-status').innerHTML = `<div class="note success">Job ${fin.job_id} finished ✓</div>`;
+    renderResults(fin.result); gotoStep(4);
+  }catch(e){ $('run-status').innerHTML=`<div class="note error">${esc(e.message)}</div>`; log('Run lỗi: '+e.message); }
+});
+async function pollJob(id){
+  for(let i=0;i<150;i++){
+    const j=await api(`/jobs/${id}`);
+    $('run-status').innerHTML=`<span class="spinner"></span>Job ${esc(j.status)}… (${i})`;
+    if(j.status==='finished') return j;
+    if(j.status==='failed') throw new Error(j.error||'job failed');
+    await sleep(1500);
+  }
+  throw new Error('Job timeout');
+}
+
+/* ── step 4: results ── */
+function renderResults(res){
+  if(!res){ $('results').innerHTML='<p class="muted">Không có kết quả.</p>'; return; }
+  let h='<h3>Metrics</h3><div class="card-grid">';
+  for(const [k,v] of Object.entries(res.metrics||{})) h+=`<div class="stat"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`;
+  h+='</div>';
+  if((res.notes||[]).length){ h+='<h3>Ghi chú</h3>'; for(const n of res.notes) h+=`<div class="note ${n.level}">${esc(n.msg)}</div>`; }
+  if((res.figures||[]).length){ h+='<h3>Biểu đồ</h3>'; for(const f of res.figures) h+=`<figure><img src="data:image/png;base64,${f.png_base64}"><figcaption>${esc(f.label)}</figcaption></figure>`; }
+  const tnames=Object.keys(res.tables||{});
+  if(tnames.length){ h+='<h3>Bảng</h3>'; for(const name of tnames){ const t=res.tables[name];
+    h+=`<div class="muted" style="margin-top:8px;font-weight:600">${esc(name)}</div>`;
+    h+= (typeof t==='string') ? `<pre style="font-size:.72rem;overflow:auto;background:var(--panel2);padding:8px;border-radius:8px">${esc(t)}</pre>` : tableHTML(t);
+  }}
+  h+=`<div class="btnrow"><a href="/jobs/${res.run_id}/export.xlsx" target="_blank"><button class="green">⬇ Export Excel</button></a></div>`;
+  $('results').innerHTML=h;
+}
+
+/* ── AI ── */
+$('btnAsk').addEventListener('click', async ()=>{
+  const p=$('aiPrompt').value.trim(); if(!p) return;
+  $('aiAnswer').innerHTML='<span class="spinner"></span>Đang hỏi AI…';
+  try{ const r=await api('/ai/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:p})});
+    $('aiAnswer').innerHTML=`<div class="note info" style="white-space:pre-wrap">${esc(r.answer)}</div>`; }
+  catch(e){ $('aiAnswer').innerHTML=`<div class="note error">${esc(e.message)}</div>`; }
+});
+
+init();
+</script>
+</body>
+</html>

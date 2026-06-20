@@ -25,6 +25,7 @@ RUN pip install -r requirements-api.txt
 # Chỉ copy phần cần cho API/worker (KHÔNG copy Streamlit.py / Next.js / tài liệu)
 COPY core ./core
 COPY api ./api
+COPY web ./web
 COPY worker.py start.sh ./
 
 EXPOSE 8000

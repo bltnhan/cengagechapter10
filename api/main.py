@@ -13,10 +13,11 @@ Luồng tương ứng 4 step của Streamlit, nhưng dưới dạng REST endpoin
 from __future__ import annotations
 
 import io
+from pathlib import Path
 
 import pandas as pd
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from rq.exceptions import NoSuchJobError
 from rq.job import Job, JobStatus
 
@@ -68,11 +69,34 @@ def _job_response(job: Job) -> dict:
     return resp
 
 
-# ── root + health ────────────────────────────────────────────────────────────
-@app.get("/")
+# ── UI (SPA tĩnh) + meta ──────────────────────────────────────────────────────
+try:
+    _UI_HTML = (Path(__file__).resolve().parent.parent / "web" / "index.html").read_text(encoding="utf-8")
+except Exception:
+    _UI_HTML = None
+
+# Catalog thuật toán cho UI (khớp tên method trong core.ml.run_*)
+METHODS_CATALOG = {
+    "classification": ["Logistic Regression", "Linear Discriminant Analysis (LDA)",
+                       "K-Nearest Neighbors (KNN)", "Classification Trees", "Naive Bayes",
+                       "Support Vector Machine (SVM)", "Random Forest", "Neural Networks (MLP)"],
+    "regression": ["Linear Regression", "Neural Networks Regression (MLP)"],
+    "clustering": ["K-Means Clustering", "Hierarchical Clustering"],
+    "association": [],
+}
+BALANCE_OPTIONS = ["None", "Random Oversampling", "SMOTE"]
+
+
+@app.get("/", response_class=HTMLResponse)
 def root():
-    # / không có nội dung API → đưa về Swagger UI cho dễ dùng
-    return RedirectResponse(url="/docs")
+    if _UI_HTML:
+        return HTMLResponse(_UI_HTML)
+    return RedirectResponse(url="/docs")  # fallback nếu thiếu web/index.html
+
+
+@app.get("/meta")
+def meta():
+    return {"tasks": list(METHODS_CATALOG), "methods": METHODS_CATALOG, "balance": BALANCE_OPTIONS}
 
 
 @app.get("/health")
