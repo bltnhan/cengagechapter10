@@ -20,6 +20,7 @@ openpyxl>=3.1.0
 xlrd>=2.0.1
 requests>=2.31.0
 
-# ── BƯỚC 3 (chưa dùng — sẽ thêm khi làm worker/queue) ──
-# celery>=5.4.0
-# redis>=5.0.0
+# ── Queue/worker (BƯỚC 3) ──
+rq>=1.16.0
+redis>=5.0.0
+fakeredis>=2.20.0             # dev/test: chạy job inline không cần Redis server

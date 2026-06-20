@@ -17,13 +17,17 @@ import io
 import pandas as pd
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
+from rq.exceptions import NoSuchJobError
+from rq.job import Job, JobStatus
 
-from core import ai, dataio, excel_export, ml, prep
+from core import ai, dataio, excel_export, prep
 
 from .config import settings
+from .queue import get_connection, get_queue, is_async
 from .schemas import AskRequest, PrepRequest, RunRequest
 from .serializers import dataset_summary, mlresult_to_json
 from .store import store
+from .tasks import execute_run
 
 app = FastAPI(title="DataMine AI API", version="0.1.0",
               description="Tầng API thuần (FastAPI) bọc lõi ML core — Phương án B")
@@ -39,17 +43,36 @@ def _get_ds(dataset_id: str):
         raise HTTPException(status_code=404, detail=f"dataset '{dataset_id}' không tồn tại")
 
 
-def _get_run(run_id: str):
+def _get_job(job_id: str) -> Job:
     try:
-        return store.get_run(run_id)
-    except KeyError:
-        raise HTTPException(status_code=404, detail=f"run '{run_id}' không tồn tại")
+        return Job.fetch(job_id, connection=get_connection())
+    except NoSuchJobError:
+        raise HTTPException(status_code=404, detail=f"job '{job_id}' không tồn tại")
+
+
+def _job_result(job: Job):
+    """Lấy giá trị trả về của job (MLResult), tương thích rq 1.x/2.x."""
+    rv = getattr(job, "return_value", None)
+    return rv() if callable(rv) else job.result
+
+
+def _job_response(job: Job) -> dict:
+    status = job.get_status(refresh=True)
+    status_str = getattr(status, "value", str(status))
+    resp = {"job_id": job.id, "status": status_str}
+    if status == JobStatus.FINISHED:
+        resp["result"] = mlresult_to_json(_job_result(job), run_id=job.id)
+    elif status == JobStatus.FAILED:
+        info = (job.exc_info or "").strip()
+        resp["error"] = info.splitlines()[-1] if info else "job failed"
+    return resp
 
 
 # ── health ───────────────────────────────────────────────────────────────────
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "datamine-api", "version": app.version}
+    return {"status": "ok", "service": "datamine-api", "version": app.version,
+            "queue_mode": "async (redis+worker)" if is_async() else "inline (dev/fakeredis)"}
 
 
 # ── STEP 1: upload ───────────────────────────────────────────────────────────
@@ -113,51 +136,61 @@ def undo_prep(dataset_id: str):
     return dataset_summary(ds, prep)
 
 
-# ── STEP 3: run ML ───────────────────────────────────────────────────────────
-@app.post("/datasets/{dataset_id}/run")
-def run_model(dataset_id: str, req: RunRequest):
-    ds = _get_ds(dataset_id)
-    df = ds.df
-
+# ── STEP 3: run ML (enqueue → job) ───────────────────────────────────────────
+def _build_params(req: RunRequest, ds) -> dict:
+    """Gói tham số picklable cho job (không kèm DataFrame — df truyền riêng)."""
     def _need(*vals):
         if any(v is None for v in vals):
             raise HTTPException(status_code=422, detail="thiếu target/features cho task này")
 
-    try:
-        if req.task == "classification":
-            _need(req.method, req.target, req.features)
-            result = ml.run_classification(
-                req.method, df, req.target, req.features, req.test_size, req.balance,
-                split_seed=req.split_seed, oversample_order=req.oversample_order,
-                hyperparams=req.hyperparams, sheet_name=ds.name, label_encoder=ds.enc_mapping)
-        elif req.task == "regression":
-            _need(req.method, req.target, req.features)
-            result = ml.run_regression(req.method, df, req.target, req.features,
-                                       req.test_size, split_seed=req.split_seed, sheet_name=ds.name)
-        elif req.task == "clustering":
-            _need(req.method, req.features)
-            result = ml.run_clustering(req.method, df, req.features, req.n_clusters, sheet_name=ds.name)
-        elif req.task == "association":
-            result = ml.run_association(df, req.min_support, req.min_confidence,
-                                        req.min_lift, sheet_name=ds.name)
-        else:  # pragma: no cover
-            raise HTTPException(status_code=422, detail=f"task không hợp lệ: {req.task}")
-    except HTTPException:
-        raise
-    except Exception as e:
-        # Mô phỏng try/except per-method của Streamlit (vd NB binned ValueError)
-        raise HTTPException(status_code=400, detail=f"Run thất bại: {type(e).__name__}: {e}")
+    if req.task in ("classification", "regression"):
+        _need(req.method, req.target, req.features)
+    elif req.task == "clustering":
+        _need(req.method, req.features)
+    return {
+        "method": req.method, "target": req.target, "features": req.features,
+        "test_size": req.test_size, "split_seed": req.split_seed,
+        "balance": req.balance, "oversample_order": req.oversample_order,
+        "hyperparams": req.hyperparams, "n_clusters": req.n_clusters,
+        "min_support": req.min_support, "min_confidence": req.min_confidence, "min_lift": req.min_lift,
+        "sheet_name": ds.name, "label_encoder": ds.enc_mapping,
+    }
 
-    run = store.add_run(ds.id, req.task, req.method, result)
-    return mlresult_to_json(result, run.id)
+
+@app.post("/datasets/{dataset_id}/run", status_code=202)
+def run_model(dataset_id: str, req: RunRequest):
+    """Enqueue job ML → trả ngay job_id. KHÔNG chạy ML trong request (tránh block web).
+
+    Production (REDIS_URL): job vào hàng đợi, worker process xử lý → poll GET /jobs/{id}.
+    Dev/test (fakeredis): job chạy inline, GET /jobs/{id} trả 'finished' ngay.
+    """
+    ds = _get_ds(dataset_id)
+    params = _build_params(req, ds)
+    job = get_queue().enqueue(
+        execute_run, req.task, ds.df, params,
+        job_timeout=settings.job_timeout, result_ttl=settings.job_result_ttl,
+        description=f"{req.task}:{req.method or ''}")
+    return _job_response(job)
+
+
+@app.get("/jobs/{job_id}")
+def get_job(job_id: str):
+    """Poll trạng thái job: queued/started/finished/failed. Khi finished → kèm 'result'."""
+    return _job_response(_get_job(job_id))
 
 
 # ── STEP 4: export + AI ──────────────────────────────────────────────────────
-@app.get("/runs/{run_id}/export.xlsx")
-def export_run(run_id: str):
-    run = _get_run(run_id)
-    sd = run.result.split_data or {}
-    tag = (run.method or run.task or "result")
+@app.get("/jobs/{job_id}/export.xlsx")
+def export_job(job_id: str):
+    job = _get_job(job_id)
+    status = job.get_status(refresh=True)
+    if status != JobStatus.FINISHED:
+        raise HTTPException(status_code=409,
+                            detail=f"job chưa xong (status={getattr(status, 'value', status)})")
+    result = _job_result(job)
+    sd = result.split_data or {}
+    # tên sheet Excel không được chứa : \ / ? * [ ]
+    tag = (job.description or "result").translate(str.maketrans({c: "_" for c in r':\/?*[]'}))
     results_dict: dict[str, pd.DataFrame] = {}
     if isinstance(sd.get("training_score"), pd.DataFrame):
         results_dict[f"Train_{tag}"[:31]] = sd["training_score"]
@@ -168,13 +201,13 @@ def export_run(run_id: str):
         results_dict[f"Details_{tag}"[:31]] = vd
     if not results_dict:
         results_dict["Result"] = pd.DataFrame(
-            list((run.result.metrics or {}).items()), columns=["Metric", "Value"])
+            list((result.metrics or {}).items()), columns=["Metric", "Value"])
 
-    figures_dict = {fs.label: [fs.png] for fs in run.result.figures if fs.save}
+    figures_dict = {fs.label: [fs.png] for fs in result.figures if fs.save}
     xls = excel_export.export_to_excel(results_dict, figures_dict or None)
     return StreamingResponse(
         io.BytesIO(xls), media_type=XLSX_MIME,
-        headers={"Content-Disposition": f'attachment; filename="run_{run_id}.xlsx"'})
+        headers={"Content-Disposition": f'attachment; filename="run_{job_id}.xlsx"'})
 
 
 @app.post("/ai/ask")

@@ -8,7 +8,9 @@ là store đơn giản trong RAM của 1 process — đủ để chạy/kiểm t
 Thay cho cơ chế st.session_state của Streamlit:
   - Dataset.history = undo-stack (label, DataFrame)   ~ prep_transforms
   - Dataset.enc_mapping                                ~ enc_mapping[sheet]
-  - Run.trained_model / split_data / figures           ~ _trained_models/_split_data/_run_figures
+
+Kết quả các lần RUN không còn ở đây nữa (BƯỚC 3): chúng là job RQ, kết quả MLResult
+nằm trong Redis (xem api/queue.py, api/tasks.py), truy cập qua job_id.
 """
 from __future__ import annotations
 
@@ -30,19 +32,9 @@ class Dataset:
     enc_mapping: dict = field(default_factory=dict)    # mapping encode gần nhất (cho label_encoder)
 
 
-@dataclass
-class Run:
-    id: str
-    dataset_id: str
-    task: str
-    method: Optional[str]
-    result: object                                     # core.ml.MLResult (giữ cả model trong RAM)
-
-
 class Store:
     def __init__(self):
         self._datasets: dict[str, Dataset] = {}
-        self._runs: dict[str, Run] = {}
         self._lock = threading.Lock()
 
     # ── datasets ─────────────────────────────────────────────────────────────
@@ -77,20 +69,6 @@ class Store:
                 _label, prev = ds.history.pop()
                 ds.df = prev
         return ds
-
-    # ── runs ─────────────────────────────────────────────────────────────────
-    def add_run(self, dataset_id: str, task: str, method: Optional[str], result) -> Run:
-        run = Run(id=uuid.uuid4().hex[:12], dataset_id=dataset_id, task=task, method=method, result=result)
-        with self._lock:
-            self._runs[run.id] = run
-        return run
-
-    def get_run(self, run_id: str) -> Run:
-        with self._lock:
-            run = self._runs.get(run_id)
-        if run is None:
-            raise KeyError(run_id)
-        return run
 
 
 store = Store()
