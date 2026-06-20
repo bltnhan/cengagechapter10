@@ -681,6 +681,20 @@ async function init(){
   fi.addEventListener('change',()=>{
     if(fi.files[0]) dz.querySelector('.label').textContent = `📄 ${fi.files[0].name} (${(fi.files[0].size/1024).toFixed(0)} KB)`;
   });
+
+  // Load and save API keys from/to localStorage
+  if (localStorage.getItem('apiKeyGemini')) {
+    $('apiKeyGemini').value = localStorage.getItem('apiKeyGemini');
+  }
+  if (localStorage.getItem('apiKeyOR')) {
+    $('apiKeyOR').value = localStorage.getItem('apiKeyOR');
+  }
+  $('apiKeyGemini').addEventListener('input', () => {
+    localStorage.setItem('apiKeyGemini', $('apiKeyGemini').value);
+  });
+  $('apiKeyOR').addEventListener('input', () => {
+    localStorage.setItem('apiKeyOR', $('apiKeyOR').value);
+  });
 }
 
 /* ── METHOD DETAILS CATALOG ────────────────────────────────────────────── */
@@ -1369,8 +1383,19 @@ async function sendAIMessage(prompt, targetMsgs, targetInput){
   CHAT_HISTORY.push({role:'model',content:'⏳ Thinking...'});
   renderChatMessages(targetMsgs);
 
+  const geminiKey = $('apiKeyGemini')?.value || '';
+  const orKey = $('apiKeyOR')?.value || '';
+
   try{
-    const r=await api('/ai/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:fullPrompt})});
+    const r=await api('/ai/ask',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        prompt:fullPrompt,
+        gemini_key:geminiKey,
+        openrouter_key:orKey
+      })
+    });
     CHAT_HISTORY[CHAT_HISTORY.length-1].content = r.answer;
   }catch(e){
     CHAT_HISTORY[CHAT_HISTORY.length-1].content = `❌ Error: ${e.message}`;

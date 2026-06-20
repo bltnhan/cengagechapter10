@@ -34,6 +34,8 @@ class RunRequest(BaseModel):
 
 class AskRequest(BaseModel):
     prompt: str = Field(..., min_length=1)
+    gemini_key: Optional[str] = None
+    openrouter_key: Optional[str] = None
 
 
 class ReloadRequest(BaseModel):

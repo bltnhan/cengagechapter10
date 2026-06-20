@@ -312,6 +312,8 @@ def export_job(job_id: str):
 
 @app.post("/ai/ask")
 def ai_ask(req: AskRequest):
-    answer = ai.ask_ai(req.prompt, gemini_key=settings.gemini_key,
-                       openrouter_key=settings.openrouter_key)
+    gemini = req.gemini_key or settings.gemini_key
+    openrouter = req.openrouter_key or settings.openrouter_key
+    answer = ai.ask_ai(req.prompt, gemini_key=gemini,
+                       openrouter_key=openrouter)
     return {"answer": answer}
