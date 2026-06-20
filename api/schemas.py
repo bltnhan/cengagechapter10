@@ -34,3 +34,8 @@ class RunRequest(BaseModel):
 
 class AskRequest(BaseModel):
     prompt: str = Field(..., min_length=1)
+
+
+class ReloadRequest(BaseModel):
+    header_row: int = 0
+    sheet_name: Optional[str] = None

@@ -16,9 +16,9 @@ def _scalar(v):
 
 
 def table_to_json(df: pd.DataFrame) -> dict:
-    """DataFrame → {columns, data} (dùng to_json orient='split' để xử lý numpy/NaN)."""
+    """DataFrame → {columns, index, data} (dùng to_json orient='split' để xử lý numpy/NaN)."""
     d = json.loads(df.to_json(orient="split"))
-    return {"columns": d["columns"], "data": d["data"]}
+    return {"columns": d["columns"], "index": d.get("index", []), "data": d["data"]}
 
 
 def figure_to_json(fs) -> dict:
@@ -55,4 +55,6 @@ def dataset_summary(ds, prep_module) -> dict:
         "suggested_target": prep_module.suggest_target(df),
         "history_len": len(ds.history),
         "preview": table_to_json(df.head(20)),
+        "missing_rate": float(df.isnull().mean().mean()),
+        "dup_count": int(df.duplicated().sum()),
     }

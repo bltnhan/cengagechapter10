@@ -3,205 +3,664 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>DataMine AI</title>
+<title>DataMine AI — Analytics Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
 <style>
-  :root{
-    --bg:#0a0e1a; --panel:#111827; --panel2:#0f1629; --border:#1f2937;
-    --txt:#e5e7eb; --muted:#9ca3af; --blue:#60a5fa; --blue2:#3b82f6; --blued:#1d4ed8;
-    --green:#34d399; --green2:#10b981; --red:#f87171; --amber:#fbbf24;
-  }
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--txt);font-family:Inter,system-ui,Segoe UI,Roboto,sans-serif;font-size:14px}
-  a{color:var(--blue)}
-  .wrap{max-width:1200px;margin:0 auto;padding:18px 22px}
-  .topbar{display:flex;align-items:center;gap:14px;border-bottom:1px solid var(--border);padding-bottom:14px;margin-bottom:18px}
-  .logo{width:42px;height:42px;border-radius:11px;background:linear-gradient(135deg,#1d4ed8,#7c3aed);display:flex;align-items:center;justify-content:center;font-size:1.4rem}
-  .title{font-size:1.3rem;font-weight:700}
-  .sub{font-size:.74rem;color:var(--muted)}
-  .badge{margin-left:auto;font-size:.66rem;font-weight:700;padding:3px 10px;border-radius:20px;background:linear-gradient(135deg,#1d4ed8,#7c3aed)}
-  .hpill{font-size:.7rem;color:var(--muted);margin-left:10px}
-  .hpill b{color:var(--green)}
-  /* stepper */
-  .stepper{display:flex;align-items:center;background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:14px 22px;margin-bottom:18px}
-  .step{display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;flex:0 0 auto}
-  .scirc{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.78rem;background:#1f2937;color:#4b5563;border:2px solid #374151}
-  .step.active .scirc{background:linear-gradient(135deg,#1d4ed8,#3b82f6);color:#fff;border-color:#3b82f6;box-shadow:0 0 14px rgba(59,130,246,.4)}
-  .step.done .scirc{background:linear-gradient(135deg,#065f46,#10b981);color:#fff;border-color:#10b981}
-  .slbl{font-size:.68rem;font-weight:600;color:#6b7280;white-space:nowrap}
-  .step.active .slbl{color:var(--blue)} .step.done .slbl{color:var(--green)}
-  .sconn{flex:1;height:2px;background:#1f2937;margin:0 8px 18px}
-  .panel{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:16px;display:none}
-  .panel.show{display:block}
-  h2{font-size:1rem;margin:0 0 12px}
-  h3{font-size:.85rem;color:var(--blue);margin:16px 0 8px}
-  label{display:block;font-size:.72rem;color:var(--muted);margin:10px 0 4px;text-transform:uppercase;letter-spacing:.04em}
-  input,select,textarea{background:#0b1220;color:var(--txt);border:1px solid #374151;border-radius:8px;padding:8px 10px;font-size:.85rem;width:100%}
-  textarea{min-height:80px;resize:vertical}
-  .row{display:flex;gap:14px;flex-wrap:wrap}
-  .row>div{flex:1;min-width:160px}
-  button{background:linear-gradient(135deg,#2563eb,#3b82f6);color:#fff;border:0;border-radius:8px;font-weight:600;padding:9px 16px;cursor:pointer;font-size:.84rem}
-  button:hover{opacity:.88} button:disabled{opacity:.45;cursor:not-allowed}
-  button.sec{background:#1f2937;border:1px solid #374151}
-  button.green{background:linear-gradient(135deg,#065f46,#10b981)}
-  button.sm{padding:5px 10px;font-size:.76rem}
-  .btnrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
-  .muted{color:var(--muted)}
-  .card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin:8px 0}
-  .stat{background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:12px 14px}
-  .stat .v{font-size:1.15rem;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--blue)}
-  .stat .k{font-size:.66rem;color:var(--muted);text-transform:uppercase;margin-top:3px}
-  table.dt{border-collapse:collapse;width:100%;font-size:.78rem;margin:6px 0;display:block;overflow:auto;max-height:340px}
-  table.dt th{position:sticky;top:0;background:#0b1220;color:#94a3b8;text-align:left;padding:6px 9px;border:1px solid var(--border);font-weight:600;white-space:nowrap}
-  table.dt td{padding:5px 9px;border:1px solid var(--border);white-space:nowrap}
-  .prob{display:flex;gap:10px;align-items:flex-start;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:8px 11px;margin-bottom:6px}
-  .chip{font-size:.62rem;font-weight:700;padding:2px 7px;border-radius:5px;white-space:nowrap;text-transform:uppercase}
-  .chip.err{background:rgba(239,68,68,.2);color:var(--red)} .chip.warn{background:rgba(245,158,11,.2);color:var(--amber)}
-  .chip.info{background:rgba(59,130,246,.2);color:var(--blue)} .chip.ok{background:rgba(16,185,129,.2);color:var(--green)}
-  .note{padding:6px 11px;border-radius:0 6px 6px 0;margin-bottom:5px;font-size:.8rem}
-  .note.info{background:rgba(59,130,246,.08);border-left:3px solid var(--blue2)}
-  .note.success{background:rgba(16,185,129,.08);border-left:3px solid var(--green2)}
-  .note.warning{background:rgba(245,158,11,.08);border-left:3px solid var(--amber)}
-  .note.error{background:rgba(239,68,68,.08);border-left:3px solid var(--red)}
-  figure{margin:0 0 14px} figure img{max-width:100%;border:1px solid var(--border);border-radius:8px;background:#0d1117}
-  figcaption{font-size:.72rem;color:var(--muted);margin-top:4px}
-  .feat-box{max-height:160px;overflow:auto;border:1px solid #374151;border-radius:8px;padding:8px;background:#0b1220}
-  .feat-box label{display:flex;align-items:center;gap:7px;text-transform:none;margin:3px 0;color:var(--txt);font-size:.82rem}
-  .feat-box input{width:auto}
-  #log{font-size:.76rem;color:var(--muted);background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:8px 11px;margin-top:12px;max-height:120px;overflow:auto;white-space:pre-wrap}
-  .hide{display:none}
-  .spinner{display:inline-block;width:13px;height:13px;border:2px solid #374151;border-top-color:var(--blue);border-radius:50%;animation:spin .8s linear infinite;vertical-align:-2px;margin-right:6px}
-  @keyframes spin{to{transform:rotate(360deg)}}
+/* ═══════════════════════════════════════════════════════════════════════════
+   DESIGN SYSTEM — matches Streamlit dark theme
+   ═══════════════════════════════════════════════════════════════════════════ */
+:root{
+  --bg:#0a0e1a; --panel:#111827; --panel2:#0f1629; --panel3:#0d1120;
+  --border:#1f2937; --border2:#374151;
+  --txt:#e5e7eb; --txt2:#f1f5f9; --muted:#9ca3af; --muted2:#6b7280; --muted3:#4b5563;
+  --blue:#60a5fa; --blue2:#3b82f6; --blued:#1d4ed8; --blue-bg:rgba(59,130,246,.08);
+  --green:#34d399; --green2:#10b981; --greend:#065f46; --green-bg:rgba(16,185,129,.08);
+  --red:#f87171; --red2:#ef4444; --red-bg:rgba(239,68,68,.08);
+  --amber:#fbbf24; --amber2:#f59e0b; --amber-bg:rgba(245,158,11,.08);
+  --purple:#a78bfa; --purple2:#7c3aed; --pink:#f472b6;
+  --font:'Inter',system-ui,-apple-system,sans-serif;
+  --mono:'JetBrains Mono','Cascadia Code',monospace;
+  --sidebar-w:240px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--txt);font-family:var(--font);font-size:14px;overflow-x:hidden}
+a{color:var(--blue);text-decoration:none}a:hover{text-decoration:underline}
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:var(--panel)}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+
+/* ── LAYOUT ────────────────────────────────────────────────────────────── */
+.app{display:flex;min-height:100vh}
+.sidebar{width:var(--sidebar-w);background:var(--panel3);border-right:1px solid var(--border);
+  position:fixed;top:0;left:0;height:100vh;overflow-y:auto;z-index:100;
+  display:flex;flex-direction:column;padding:16px 12px}
+.main{margin-left:var(--sidebar-w);flex:1;min-height:100vh;display:flex;flex-direction:column}
+.topbar{display:flex;align-items:center;gap:14px;padding:14px 22px;border-bottom:1px solid var(--border);background:var(--bg)}
+.content{flex:1;max-width:1200px;width:100%;margin:0 auto;padding:18px 22px}
+.footer{text-align:center;padding:12px;font-size:.7rem;color:var(--muted3);border-top:1px solid var(--border)}
+
+/* ── SIDEBAR ───────────────────────────────────────────────────────────── */
+.sb-logo{display:flex;align-items:center;gap:10px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--border)}
+.sb-icon{width:36px;height:36px;background:linear-gradient(135deg,var(--blued),var(--purple2));
+  border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:1.2rem}
+.sb-name{font-size:1rem;font-weight:700;color:#f9fafb}
+.sb-sub{font-size:.68rem;color:var(--muted3)}
+.sb-section{font-size:.63rem;font-weight:700;letter-spacing:.1em;color:var(--border2);
+  text-transform:uppercase;margin:14px 0 5px}
+.sb-step{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:8px;
+  margin-bottom:2px;cursor:pointer;transition:background .15s}
+.sb-step:hover{background:rgba(255,255,255,.03)}
+.sb-step.active{background:rgba(59,130,246,.12)}
+.sb-num{width:20px;height:20px;border-radius:50%;font-size:.68rem;font-weight:700;
+  display:flex;align-items:center;justify-content:center}
+.sn-done{background:rgba(16,185,129,.2);color:var(--green)}
+.sn-active{background:rgba(59,130,246,.2);color:var(--blue)}
+.sn-pend{background:var(--border);color:var(--muted3)}
+.sb-txt{font-size:.8rem;font-weight:500}
+.sbt-done{color:#6ee7b7}.sbt-active{color:#93c5fd}.sbt-pend{color:var(--muted3)}
+.sb-input-group{margin-top:8px}
+.sb-input-group label{display:block;font-size:.7rem;color:var(--muted2);margin-bottom:3px}
+.sb-input-group input,.sb-input-group select{width:100%;background:#0b1220;color:var(--txt);
+  border:1px solid var(--border2);border-radius:6px;padding:6px 8px;font-size:.8rem;font-family:var(--font)}
+.sb-apikey{font-size:.72rem;margin-top:auto;padding-top:12px;border-top:1px solid var(--border)}
+.sb-apikey input{width:100%;background:#0b1220;color:var(--txt);border:1px solid var(--border2);
+  border-radius:6px;padding:5px 8px;font-size:.76rem;margin:3px 0}
+
+/* ── TOPBAR ────────────────────────────────────────────────────────────── */
+.logo-lg{width:42px;height:42px;border-radius:11px;background:linear-gradient(135deg,var(--blued),var(--purple2));
+  display:flex;align-items:center;justify-content:center;font-size:1.4rem}
+.title{font-size:1.3rem;font-weight:700;color:#f9fafb}
+.sub{font-size:.74rem;color:var(--muted)}
+.badge{margin-left:auto;font-size:.66rem;font-weight:700;padding:3px 10px;border-radius:20px;
+  background:linear-gradient(135deg,var(--blued),var(--purple2));color:#fff}
+.badge.v{background:linear-gradient(135deg,var(--greend),var(--green2))}
+.hpill{font-size:.7rem;color:var(--muted);margin-left:10px}
+.hpill b{color:var(--green)}
+.mode-toggle{display:flex;background:var(--panel);border:1px solid var(--border);border-radius:8px;
+  overflow:hidden;margin-left:14px}
+.mode-btn{padding:5px 14px;font-size:.76rem;font-weight:600;cursor:pointer;border:0;
+  background:transparent;color:var(--muted);font-family:var(--font)}
+.mode-btn.active{background:var(--blued);color:#fff}
+
+/* ── STEPPER ───────────────────────────────────────────────────────────── */
+.stepper{display:flex;align-items:center;background:var(--panel);border:1px solid var(--border);
+  border-radius:14px;padding:14px 22px;margin-bottom:18px}
+.step{display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;flex:0 0 auto}
+.scirc{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-weight:700;font-size:.78rem;transition:all .3s}
+.sc-pend{background:var(--border);color:var(--muted3);border:2px solid var(--border2)}
+.sc-active{background:linear-gradient(135deg,var(--blued),var(--blue2));color:#fff;
+  border:2px solid var(--blue2);box-shadow:0 0 14px rgba(59,130,246,.4)}
+.sc-done{background:linear-gradient(135deg,var(--greend),var(--green2));color:#fff;border:2px solid var(--green2)}
+.slbl{font-size:.68rem;font-weight:600;white-space:nowrap}
+.sl-pend{color:var(--muted3)}.sl-active{color:var(--blue)}.sl-done{color:var(--green)}
+.sconn{flex:1;height:2px;margin:0 8px 18px;border-radius:1px}
+.sconn.done{background:linear-gradient(90deg,var(--green2),var(--greend))}.sconn.pend{background:var(--border)}
+
+/* ── PANELS ────────────────────────────────────────────────────────────── */
+.panel{display:none}.panel.show{display:block}
+h2{font-size:1rem;font-weight:700;color:#f9fafb;margin:0 0 12px}
+h3{font-size:.85rem;color:var(--blue);margin:16px 0 8px}
+label{display:block;font-size:.72rem;color:var(--muted);margin:10px 0 4px;
+  text-transform:uppercase;letter-spacing:.04em}
+input,select,textarea{background:#0b1220;color:var(--txt);border:1px solid var(--border2);
+  border-radius:8px;padding:8px 10px;font-size:.85rem;width:100%;font-family:var(--font)}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--blue2)}
+textarea{min-height:80px;resize:vertical}
+.row{display:flex;gap:14px;flex-wrap:wrap}.row>div{flex:1;min-width:160px}
+
+/* ── BUTTONS ───────────────────────────────────────────────────────────── */
+button,.btn{background:linear-gradient(135deg,#2563eb,var(--blue2));color:#fff;border:0;
+  border-radius:8px;font-weight:600;padding:9px 16px;cursor:pointer;font-size:.84rem;
+  font-family:var(--font);transition:all .2s;display:inline-flex;align-items:center;gap:6px}
+button:hover{opacity:.88}button:disabled{opacity:.45;cursor:not-allowed}
+.btn-sec{background:var(--border);border:1px solid var(--border2)}
+.btn-green{background:linear-gradient(135deg,var(--greend),var(--green2))}
+.btn-sm{padding:5px 10px;font-size:.76rem}
+.btn-danger{background:linear-gradient(135deg,#991b1b,var(--red2))}
+.btnrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+
+/* ── CARDS & STATS ─────────────────────────────────────────────────────── */
+.card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px 18px;margin-bottom:12px}
+.card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin:8px 0}
+.stat{background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:12px 14px}
+.stat .v{font-size:1.15rem;font-weight:700;font-family:var(--mono);color:var(--blue)}
+.stat .v.green{color:var(--green)}.stat .v.red{color:var(--red)}.stat .v.amber{color:var(--amber)}
+.stat .k{font-size:.66rem;color:var(--muted2);text-transform:uppercase;margin-top:3px}
+
+/* ── TABLES ────────────────────────────────────────────────────────────── */
+table.dt{border-collapse:collapse;width:100%;font-size:.78rem;margin:6px 0;display:block;overflow:auto;max-height:400px}
+table.dt th{position:sticky;top:0;background:#0b1220;color:#94a3b8;text-align:left;padding:6px 9px;
+  border:1px solid var(--border);font-weight:600;white-space:nowrap;z-index:1}
+table.dt td{padding:5px 9px;border:1px solid var(--border);white-space:nowrap}
+table.dt tr:hover td{background:rgba(59,130,246,.05)}
+
+/* ── PROBLEMS & NOTES ──────────────────────────────────────────────────── */
+.prob{display:flex;gap:10px;align-items:flex-start;background:var(--panel2);border:1px solid var(--border);
+  border-radius:8px;padding:8px 11px;margin-bottom:6px;transition:border-color .2s}
+.prob:hover{border-color:var(--border2)}
+.chip{font-size:.62rem;font-weight:700;padding:2px 7px;border-radius:5px;white-space:nowrap;
+  text-transform:uppercase;font-family:var(--mono)}
+.chip.err{background:rgba(239,68,68,.2);color:var(--red)}
+.chip.warn{background:rgba(245,158,11,.2);color:var(--amber)}
+.chip.info{background:rgba(59,130,246,.2);color:var(--blue)}
+.chip.ok{background:rgba(16,185,129,.2);color:var(--green)}
+.note{padding:8px 12px;border-radius:0 6px 6px 0;margin-bottom:5px;font-size:.8rem}
+.note.info{background:var(--blue-bg);border-left:3px solid var(--blue2)}
+.note.success{background:var(--green-bg);border-left:3px solid var(--green2)}
+.note.warning{background:var(--amber-bg);border-left:3px solid var(--amber2)}
+.note.error{background:var(--red-bg);border-left:3px solid var(--red2)}
+
+/* ── SECTION HEADER ────────────────────────────────────────────────────── */
+.sec-hdr{display:flex;align-items:center;gap:10px;margin:20px 0 12px;padding-bottom:9px;border-bottom:1px solid var(--border)}
+.sec-icon{width:30px;height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:.9rem}
+.si-blue{background:rgba(59,130,246,.15)}.si-green{background:rgba(16,185,129,.15)}
+.si-purple{background:rgba(124,58,237,.15)}.si-amber{background:rgba(245,158,11,.15)}
+.sec-title{font-size:.92rem;font-weight:700;color:var(--txt2)}
+.sec-sub{font-size:.72rem;color:var(--muted2);margin-left:auto}
+
+/* ── TABS ──────────────────────────────────────────────────────────────── */
+.tabs{display:flex;background:var(--panel);border:1px solid var(--border);border-radius:8px;
+  padding:3px;margin-bottom:14px;overflow-x:auto}
+.tab-btn{padding:6px 14px;font-size:.78rem;font-weight:600;cursor:pointer;border:0;
+  background:transparent;color:var(--muted);border-radius:6px;font-family:var(--font);
+  white-space:nowrap;transition:all .15s}
+.tab-btn.active{background:var(--blued);color:#fff}
+.tab-btn:hover:not(.active){background:rgba(255,255,255,.04)}
+.tab-panel{display:none}.tab-panel.active{display:block}
+
+/* ── WELCOME ───────────────────────────────────────────────────────────── */
+.welcome{background:linear-gradient(135deg,#0f1f3d,#150f2d);border:1px solid #1e3a5f;
+  border-radius:14px;padding:28px 32px;margin-bottom:20px}
+.welcome h2{font-size:1.6rem!important;background:linear-gradient(90deg,var(--blue),var(--purple),var(--pink));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:8px!important}
+.welcome p{color:var(--muted);font-size:.88rem;line-height:1.7}
+.step-list{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:16px}
+.step-list-item{background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:9px;
+  padding:12px 14px;display:flex;align-items:flex-start;gap:10px}
+.sli-num{font-size:.75rem;font-weight:700;color:var(--blue);font-family:var(--mono);
+  background:rgba(59,130,246,.1);border-radius:5px;padding:2px 7px;white-space:nowrap}
+.sli-text{font-size:.8rem;color:var(--muted);line-height:1.5}
+.sli-text b{color:var(--txt);display:block;margin-bottom:2px}
+
+/* ── FIGURES ───────────────────────────────────────────────────────────── */
+figure{margin:0 0 14px}
+figure img{max-width:100%;border:1px solid var(--border);border-radius:8px;background:#0d1117}
+figcaption{font-size:.72rem;color:var(--muted);margin-top:4px}
+.fig-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:14px}
+
+/* ── FEATURES BOX ──────────────────────────────────────────────────────── */
+.feat-box{max-height:180px;overflow:auto;border:1px solid var(--border2);border-radius:8px;
+  padding:8px;background:#0b1220}
+.feat-box label{display:flex;align-items:center;gap:7px;text-transform:none;margin:3px 0;
+  color:var(--txt);font-size:.82rem;cursor:pointer}
+.feat-box input[type=checkbox]{width:auto;accent-color:var(--blue2)}
+
+/* ── METHOD CARDS ──────────────────────────────────────────────────────── */
+.method-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px;margin:10px 0}
+.method-card{background:var(--panel);border:1px solid var(--border);border-radius:10px;
+  padding:11px 13px;cursor:pointer;transition:all .2s}
+.method-card:hover{border-color:var(--border2)}
+.method-card.sel{border-color:var(--green2);background:#052e1c;box-shadow:0 0 0 1px var(--green2)}
+.method-name{font-size:.83rem;font-weight:600;color:var(--txt2)}
+.method-desc{font-size:.71rem;color:var(--muted);margin-top:5px;line-height:1.4}
+.mbadge{display:inline-block;padding:1px 7px;border-radius:4px;font-size:.65rem;font-weight:700;margin-bottom:3px}
+.mb-clf{background:rgba(59,130,246,.2);color:var(--blue)}
+.mb-reg{background:rgba(124,58,237,.2);color:var(--purple)}
+.mb-clus{background:rgba(16,185,129,.2);color:var(--green)}
+.mb-assoc{background:rgba(239,68,68,.2);color:var(--red)}
+
+/* ── METRICS TABLE (Solver Analytics) ──────────────────────────────────── */
+.metrics-table{width:100%;border-collapse:collapse;background:#0f172a;border-radius:8px;overflow:hidden;border:1px solid #1e293b}
+.metrics-table th{padding:8px 10px;font-size:.65rem;color:#94a3b8;text-transform:uppercase;
+  letter-spacing:.8px;background:var(--panel);text-align:left}
+.metrics-table td{padding:7px 10px;font-size:.82rem;border-top:1px solid #1e293b}
+.metrics-table .metric-name{font-weight:600;color:var(--txt)}
+.metrics-table .metric-formula{color:var(--muted2);font-style:italic;font-size:.75rem}
+.metrics-table .metric-val{text-align:right;font-weight:800;color:var(--blue);font-family:var(--mono)}
+.progress-bar{height:5px;background:var(--border);border-radius:3px;margin-top:3px}
+.progress-fill{height:5px;border-radius:3px;transition:width .5s ease}
+.pf-green{background:var(--green2)}.pf-amber{background:var(--amber2)}.pf-red{background:var(--red2)}
+
+/* ── RESULTS SECTION HEADERS ───────────────────────────────────────────── */
+.result-header{font-size:.9rem;font-weight:700;margin:14px 0 8px;padding:7px 12px;border-radius:4px;border-left:3px solid}
+.rh-train{color:var(--blue);background:var(--blue-bg);border-left-color:var(--blue2)}
+.rh-val{color:var(--green);background:var(--green-bg);border-left-color:var(--green2)}
+.split-view{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+
+/* ── FITNESS REPORT ────────────────────────────────────────────────────── */
+.fitness-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+.fitness-card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px 18px}
+.fitness-grade{font-size:2.2rem;font-weight:900;font-family:var(--mono);line-height:1}
+.fg-A{color:var(--green)}.fg-B{color:var(--blue)}.fg-C{color:var(--amber)}.fg-D{color:var(--red)}
+.fitness-method{font-size:.85rem;font-weight:700;color:var(--txt2);margin:4px 0 2px}
+.fitness-score{font-size:.77rem;color:var(--muted2);margin-bottom:8px;font-family:var(--mono)}
+.fitness-verdict{font-size:.77rem;padding:5px 10px;border-radius:6px;margin-bottom:8px;font-weight:600}
+.fv-A{background:rgba(16,185,129,.1);color:var(--green);border:1px solid rgba(16,185,129,.25)}
+.fv-B{background:rgba(59,130,246,.1);color:var(--blue);border:1px solid rgba(59,130,246,.25)}
+.fv-C{background:rgba(245,158,11,.1);color:var(--amber);border:1px solid rgba(245,158,11,.25)}
+.fv-D{background:rgba(239,68,68,.1);color:var(--red);border:1px solid rgba(239,68,68,.25)}
+.fitness-bar-wrap{background:var(--border);border-radius:4px;height:5px;margin:5px 0 8px}
+.fitness-bar{border-radius:4px;height:5px;transition:width .5s ease}
+.fb-A{background:linear-gradient(90deg,var(--green2),var(--green))}.fb-B{background:linear-gradient(90deg,#2563eb,var(--blue))}
+.fb-C{background:linear-gradient(90deg,#d97706,var(--amber))}.fb-D{background:linear-gradient(90deg,#dc2626,var(--red))}
+.fitness-advice{font-size:.75rem;color:var(--muted);line-height:1.55}
+
+/* ── ADVISOR ───────────────────────────────────────────────────────────── */
+.quiz-card{background:var(--panel2);border:1px solid #1e3a5f;border-radius:11px;padding:14px 18px;margin-bottom:10px}
+.quiz-q{font-size:.87rem;font-weight:600;color:var(--txt2);margin-bottom:8px}
+.quiz-hint{font-size:.72rem;color:var(--muted2);margin-top:-5px;margin-bottom:9px}
+.quiz-opts label{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px;
+  cursor:pointer;font-size:.82rem;color:var(--txt);transition:background .15s;margin:2px 0}
+.quiz-opts label:hover{background:rgba(255,255,255,.03)}
+.quiz-opts input[type=radio]{accent-color:var(--blue2);width:auto}
+.decision-path{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin:8px 0;
+  padding:9px 12px;background:var(--bg);border-radius:8px;border:1px solid var(--border)}
+.dp-node{padding:3px 9px;border-radius:5px;font-size:.71rem;font-weight:600}
+.dp-blue{background:rgba(59,130,246,.15);color:var(--blue)}
+.dp-green{background:rgba(16,185,129,.15);color:var(--green)}
+.dp-purple{background:rgba(124,58,237,.15);color:var(--purple)}
+.dp-amber{background:rgba(245,158,11,.15);color:var(--amber)}
+.dp-arrow{color:var(--border2);font-size:.8rem}
+.rec-item{display:flex;align-items:flex-start;gap:9px;padding:8px 10px;border-radius:8px;margin-bottom:5px}
+.ri-prereq{background:var(--amber-bg);border:1px solid rgba(245,158,11,.22)}
+.ri-primary{background:var(--blue-bg);border:1px solid rgba(59,130,246,.22)}
+.ri-alt{background:rgba(124,58,237,.06);border:1px solid rgba(124,58,237,.18)}
+.ri-opt{background:var(--green-bg);border:1px solid rgba(16,185,129,.15)}
+.rec-badge{padding:2px 8px;border-radius:5px;font-size:.64rem;font-weight:700;white-space:nowrap;flex-shrink:0}
+.rb-pre{background:rgba(245,158,11,.2);color:var(--amber)}
+.rb-pri{background:rgba(59,130,246,.2);color:var(--blue)}
+.rb-alt{background:rgba(124,58,237,.2);color:var(--purple)}
+.rb-opt{background:rgba(16,185,129,.2);color:var(--green)}
+.rec-name{font-size:.83rem;font-weight:600;color:var(--txt2)}
+.rec-why{font-size:.72rem;color:var(--muted);margin-top:2px;line-height:1.4}
+
+/* ── AI CHAT ───────────────────────────────────────────────────────────── */
+.chat-box{background:#0d1829;border:1px solid #1e3a5f;border-radius:12px;margin-bottom:10px}
+.chat-messages{max-height:400px;overflow-y:auto;padding:12px 16px}
+.chat-msg{margin-bottom:10px;display:flex;gap:8px}
+.chat-avatar{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;font-size:.75rem;flex-shrink:0}
+.chat-avatar.user{background:rgba(59,130,246,.2)}
+.chat-avatar.ai{background:rgba(124,58,237,.2)}
+.chat-bubble{font-size:.84rem;color:#d1d5db;line-height:1.7;white-space:pre-wrap;word-break:break-word;flex:1}
+.chat-input-row{display:flex;gap:8px;padding:10px 16px;border-top:1px solid #1e3a5f}
+.chat-input-row textarea{flex:1;min-height:40px;max-height:120px;resize:none}
+
+/* ── COLLAPSIBLE ───────────────────────────────────────────────────────── */
+details{background:var(--panel);border:1px solid var(--border);border-radius:10px;margin-bottom:8px}
+details>summary{padding:10px 14px;cursor:pointer;font-size:.82rem;font-weight:600;color:var(--muted);
+  list-style:none;display:flex;align-items:center;gap:8px}
+details>summary::before{content:'▸';transition:transform .2s}
+details[open]>summary::before{transform:rotate(90deg)}
+details>.detail-body{padding:0 14px 12px}
+
+/* ── MISC ──────────────────────────────────────────────────────────────── */
+.hide{display:none!important}
+.spinner{display:inline-block;width:13px;height:13px;border:2px solid var(--border2);
+  border-top-color:var(--blue);border-radius:50%;animation:spin .8s linear infinite;
+  vertical-align:-2px;margin-right:6px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.muted{color:var(--muted)}.muted2{color:var(--muted2)}
+.mt-4{margin-top:16px}.mb-4{margin-bottom:16px}
+#log{font-size:.72rem;color:var(--muted2);background:var(--panel2);border:1px solid var(--border);
+  border-radius:8px;padding:8px 11px;margin-top:12px;max-height:100px;overflow:auto;white-space:pre-wrap}
+
+/* ── UPLOAD DROPZONE ───────────────────────────────────────────────────── */
+.dropzone{border:2px dashed var(--border2);border-radius:12px;padding:40px 20px;text-align:center;
+  cursor:pointer;transition:all .2s;background:var(--panel)}
+.dropzone:hover,.dropzone.dragover{border-color:var(--blue2);background:rgba(59,130,246,.04)}
+.dropzone .icon{font-size:2rem;margin-bottom:8px}
+.dropzone .label{font-size:.85rem;color:var(--muted)}
+.dropzone .sublabel{font-size:.72rem;color:var(--muted3);margin-top:4px}
+
+/* ── HYPERPARAMS ───────────────────────────────────────────────────────── */
+.hp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin:10px 0}
+.hp-grid label{font-size:.7rem}
+.hp-grid input,.hp-grid select{font-size:.8rem;padding:6px 8px}
+
+/* ── COMPARISON TABLE ──────────────────────────────────────────────────── */
+.cmp-table{width:100%;border-collapse:collapse;font-size:.78rem}
+.cmp-table th{background:var(--panel);color:var(--muted);padding:8px 10px;text-align:left;
+  border-bottom:2px solid var(--border);font-weight:700}
+.cmp-table td{padding:6px 10px;border-bottom:1px solid var(--border)}
+.cmp-table tr:hover td{background:rgba(59,130,246,.04)}
+.cmp-best{font-weight:700;color:var(--green)}
+
+@media(max-width:768px){
+  .sidebar{display:none}
+  .main{margin-left:0}
+  .split-view{grid-template-columns:1fr}
+  .step-list{grid-template-columns:1fr}
+}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <div class="topbar">
-    <div class="logo">🧬</div>
-    <div>
-      <div class="title">DataMine AI</div>
-      <div class="sub">Upload · Prep · Profile · Predict — FastAPI + Redis + worker</div>
+<div class="app">
+
+  <!-- ═══ SIDEBAR ═══ -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sb-logo">
+      <div class="sb-icon">🧬</div>
+      <div><div class="sb-name">DataMine AI</div><div class="sb-sub">Analytics Platform</div></div>
     </div>
-    <span class="hpill" id="health">checking…</span>
-    <span class="badge">WEB UI</span>
-    <a class="hpill" href="/docs" target="_blank">API /docs ↗</a>
+
+    <div class="sb-section">WORKFLOW</div>
+    <div id="sb-steps"></div>
+
+    <div class="sb-section">DATA UPLOAD</div>
+    <div class="sb-input-group">
+      <label>Dòng header (0 = đầu tiên)</label>
+      <input type="number" id="header" value="0" min="0" max="20" />
+    </div>
+    <div class="sb-input-group" id="sb-sheet-wrap" style="display:none">
+      <label>📋 CHỌN SHEET</label>
+      <select id="sb-sheet"></select>
+    </div>
+
+    <div class="sb-apikey">
+      <div class="sb-section" style="margin-top:0">API KEYS</div>
+      <label>Gemini (aistudio.google.com)</label>
+      <input type="password" id="apiKeyGemini" placeholder="AIza..." />
+      <label style="margin-top:6px">OpenRouter — fallback</label>
+      <input type="password" id="apiKeyOR" placeholder="sk-or-..." />
+      <div class="muted2" style="font-size:.65rem;margin-top:4px">🔒 Keys chỉ lưu trong browser</div>
+    </div>
+  </aside>
+
+  <!-- ═══ MAIN ═══ -->
+  <div class="main">
+    <div class="topbar">
+      <div class="logo-lg">🧬</div>
+      <div><div class="title">DataMine AI</div>
+        <div class="sub">Upload · Prep · Profile · Predict — FastAPI + Redis + worker</div></div>
+      <div class="mode-toggle">
+        <button class="mode-btn active" data-mode="workflow">🎯 Workflow</button>
+        <button class="mode-btn" data-mode="chat">💬 AI Chat</button>
+      </div>
+      <span class="hpill" id="health">checking…</span>
+      <span class="badge v">v2.0</span>
+      <a class="hpill" href="/docs" target="_blank">API Docs ↗</a>
+    </div>
+
+    <!-- Working dataset status bar -->
+    <div id="working-bar" class="card" style="display:none; padding:10px 14px; margin:18px 22px 0 22px; font-size:.82rem; align-items:center; gap:8px; background:rgba(255,255,255,0.02); backdrop-filter:blur(5px); border:1px solid rgba(255,255,255,0.05); border-radius:10px;"></div>
+
+    <!-- ═══ WORKFLOW MODE ═══ -->
+    <div id="mode-workflow" class="content">
+      <div class="stepper" id="stepper"></div>
+
+      <!-- ── STEP 1: Load Data ── -->
+      <section class="panel show" id="p1">
+        <div class="welcome" id="welcomeBox">
+          <h2>Welcome to DataMine AI</h2>
+          <p>A guided data analytics platform. Upload your data and follow 4 steps to clean, profile, model, and get AI-driven predictions.</p>
+          <div class="step-list">
+            <div class="step-list-item"><span class="sli-num">01</span><div class="sli-text"><b>Load Data</b>Upload CSV, Excel, JSON or TXT. Multiple files supported — merge later.</div></div>
+            <div class="step-list-item"><span class="sli-num">02</span><div class="sli-text"><b>Prep Data</b>Auto-detect and fix missing values, duplicates, outliers and encoding.</div></div>
+            <div class="step-list-item"><span class="sli-num">03</span><div class="sli-text"><b>Analysis & Profiling</b>Explore distributions, correlations, missing value charts. Run ML models side-by-side.</div></div>
+            <div class="step-list-item"><span class="sli-num">04</span><div class="sli-text"><b>Advise & Predict</b>AI blueprint + model comparison + actionable recommendations. Export to Excel.</div></div>
+          </div>
+        </div>
+
+        <div class="sec-hdr"><div class="sec-icon si-blue">📁</div><span class="sec-title">Upload File</span></div>
+        <div class="dropzone" id="dropzone">
+          <div class="icon">⬆️</div>
+          <div class="label">Drop files here or click to upload</div>
+          <div class="sublabel">200MB per file • CSV, XLSX, XLS, JSON, TXT</div>
+          <input type="file" id="file" accept=".csv,.xlsx,.xls,.xlsm,.json,.txt" style="display:none" />
+        </div>
+        <div class="btnrow"><button id="btnUpload" class="btn-sm">⬆ Upload to API</button></div>
+        <div id="ds-info"></div>
+      </section>
+
+      <!-- ── STEP 2: Prep Data ── -->
+      <section class="panel" id="p2">
+        <div class="sec-hdr"><div class="sec-icon si-green">🔧</div><span class="sec-title">Data Preparation</span>
+          <span class="sec-sub">Fix issues before modeling</span></div>
+        <p class="muted" style="margin-bottom:12px">Phát hiện & xử lý vấn đề: thiếu giá trị, trùng lặp, outlier, mã hoá. Mỗi bước có thể Undo.</p>
+        <div class="btnrow">
+          <button class="btn-sm" data-op="missing">🩹 Fix Missing</button>
+          <button class="btn-sm" data-op="duplicates">🗑️ Remove Duplicates</button>
+          <button class="btn-sm" data-op="outliers">📏 Cap Outliers (3·IQR)</button>
+          <button class="btn-sm" data-op="remove_outliers">✂️ Remove Outlier Rows</button>
+          <button class="btn-sm" data-op="encode" data-enc="ordinal">🔢 Encode Ordinal</button>
+          <button class="btn-sm" data-op="encode" data-enc="nominal">🔠 Encode One-Hot</button>
+          <button class="btn-sm btn-sec" id="btnUndo">↶ Undo</button>
+        </div>
+        <div id="prep-msg" style="margin-top:8px"></div>
+        <h3>⚠️ Vấn đề phát hiện</h3>
+        <div id="problems"></div>
+        <h3>📋 Xem trước dữ liệu</h3>
+        <div id="prep-preview"></div>
+        <div class="btnrow"><button id="toStep3">Tiếp tục → Analysis & Profiling</button></div>
+      </section>
+
+      <!-- ── STEP 3: Analysis & Profiling ── -->
+      <section class="panel" id="p3">
+        <div class="sec-hdr"><div class="sec-icon si-purple">📊</div><span class="sec-title">Analysis & Profiling</span></div>
+
+        <div class="tabs" id="step3tabs">
+          <button class="tab-btn active" data-tab="eda">📋 EDA Profiling</button>
+          <button class="tab-btn" data-tab="advisor">🎯 Smart Advisor</button>
+          <button class="tab-btn" data-tab="run">▶️ Run ML Models</button>
+        </div>
+
+        <!-- EDA TAB -->
+        <div class="tab-panel active" id="tab-eda">
+          <div class="tabs" id="edaTabs">
+            <button class="tab-btn active" data-tab="eda-overview">📋 Overview</button>
+            <button class="tab-btn" data-tab="eda-dist">📊 Distributions</button>
+            <button class="tab-btn" data-tab="eda-corr">🔗 Correlations</button>
+            <button class="tab-btn" data-tab="eda-miss">⚠️ Missing & Outliers</button>
+          </div>
+          <div class="btnrow" style="margin-top:0;margin-bottom:12px"><button id="btnLoadEDA" class="btn-sm btn-sec">🔄 Generate EDA Charts</button></div>
+          <div class="tab-panel active" id="tab-eda-overview"><div id="eda-overview-content"><p class="muted">Click "Generate EDA Charts" to load profiling data.</p></div></div>
+          <div class="tab-panel" id="tab-eda-dist"><div id="eda-dist-content"></div></div>
+          <div class="tab-panel" id="tab-eda-corr"><div id="eda-corr-content"></div></div>
+          <div class="tab-panel" id="tab-eda-miss"><div id="eda-miss-content"></div></div>
+        </div>
+
+        <!-- ADVISOR TAB -->
+        <div class="tab-panel" id="tab-advisor">
+          <div style="background:linear-gradient(135deg,#0f1f3d,#0d1120);border:1px solid #1e3a5f;border-radius:12px;padding:14px 18px;margin-bottom:14px">
+            <div style="font-size:.93rem;font-weight:700;color:var(--blue);margin-bottom:3px">🎯 Smart Algorithm Advisor</div>
+            <div style="font-size:.78rem;color:var(--muted2)">Trả lời 4 câu hỏi → hệ thống gợi ý thuật toán phù hợp nhất cho dữ liệu của bạn.</div>
+          </div>
+          <div id="advisor-form"></div>
+          <div id="advisor-result"></div>
+        </div>
+
+        <!-- RUN ML TAB -->
+        <div class="tab-panel" id="tab-run">
+          <div class="row">
+            <div><label>Task</label><select id="task"></select></div>
+            <div id="wrap-target"><label>Target (cột nhãn)</label><select id="target"></select></div>
+          </div>
+          <div class="row" id="wrap-method" style="margin-top:8px">
+            <div style="flex:1; min-width:100%">
+              <label>Thuật toán (chọn 1)</label>
+              <div id="method-cards-container" class="method-grid"></div>
+              <select id="method" class="hide"></select>
+            </div>
+          </div>
+          <div class="row" style="margin-top:8px">
+            <div id="wrap-testsize"><label>Test size</label><input type="number" id="testsize" value="0.3" step="0.05" min="0.1" max="0.5" /></div>
+            <div id="wrap-balance"><label>Class balancing</label><select id="balance"></select></div>
+            <div id="wrap-nclusters" class="hide"><label>Số cụm (K)</label><input type="number" id="nclusters" value="3" min="2" max="10" /></div>
+          </div>
+          <div class="row hide" id="wrap-assoc">
+            <div><label>Min support</label><input type="number" id="minsup" value="0.05" step="0.01" min="0.01" max="1" /></div>
+            <div><label>Min confidence</label><input type="number" id="minconf" value="0.3" step="0.05" min="0" max="1" /></div>
+            <div><label>Min lift</label><input type="number" id="minlift" value="1.0" step="0.1" min="0" /></div>
+          </div>
+
+          <!-- Hyperparameters (collapsible) -->
+          <details id="hp-section" style="margin-top:12px">
+            <summary>⚙️ Hyperparameters (Advanced)</summary>
+            <div class="detail-body hp-grid" id="hp-grid"></div>
+          </details>
+
+          <div id="wrap-features"><label>Features</label><div class="feat-box" id="features"></div></div>
+          <div class="btnrow"><button id="btnRun">▶ Run Model</button></div>
+          <div id="run-status"></div>
+        </div>
+      </section>
+
+      <!-- ── STEP 4: Results & AI ── -->
+      <section class="panel" id="p4">
+        <div class="sec-hdr"><div class="sec-icon si-amber">🏆</div><span class="sec-title">Results & AI Insights</span></div>
+
+        <div id="results"><p class="muted">Chưa có kết quả. Chạy một mô hình ở bước 3.</p></div>
+
+        <!-- Fitness Report -->
+        <div id="fitness-report"></div>
+
+        <!-- Comparison Table -->
+        <div id="comparison-section"></div>
+
+        <!-- AI Ask -->
+        <div class="sec-hdr" style="margin-top:24px"><div class="sec-icon si-blue">💬</div><span class="sec-title">Hỏi AI</span></div>
+        <div class="chat-box">
+          <div class="chat-messages" id="chatMessages"></div>
+          <div class="chat-input-row">
+            <textarea id="aiPrompt" placeholder="Ví dụ: Giải thích kết quả Random Forest ở trên..." rows="2"></textarea>
+            <button id="btnAsk" class="btn-sm">Gửi</button>
+          </div>
+        </div>
+
+        <!-- Export -->
+        <div class="btnrow" id="exportRow" style="display:none">
+          <a id="exportLink" target="_blank"><button class="btn-green">⬇ Export Excel</button></a>
+        </div>
+      </section>
+    </div>
+
+    <!-- ═══ AI CHAT MODE ═══ -->
+    <div id="mode-chat" class="content hide">
+      <div class="sec-hdr"><div class="sec-icon si-purple">💬</div><span class="sec-title">AI Chat</span>
+        <span class="sec-sub">Hỏi AI về dữ liệu, kết quả, phương pháp</span></div>
+      <div class="chat-box" style="height:calc(100vh - 200px)">
+        <div class="chat-messages" id="chatModeMessages" style="max-height:calc(100vh - 300px)"></div>
+        <div class="chat-input-row">
+          <textarea id="chatModePrompt" placeholder="Hỏi bất cứ điều gì về dữ liệu..." rows="2"></textarea>
+          <button id="btnChatSend" class="btn-sm">Gửi</button>
+        </div>
+      </div>
+    </div>
+
+    <footer class="footer">DataMine AI v2.0 — FastAPI + Redis + worker · Open Source Analytics</footer>
   </div>
-
-  <div class="stepper" id="stepper">
-    <div class="step active" data-step="1"><div class="scirc">1</div><div class="slbl">Load Data</div></div>
-    <div class="sconn"></div>
-    <div class="step" data-step="2"><div class="scirc">2</div><div class="slbl">Prep Data</div></div>
-    <div class="sconn"></div>
-    <div class="step" data-step="3"><div class="scirc">3</div><div class="slbl">Analysis & Run</div></div>
-    <div class="sconn"></div>
-    <div class="step" data-step="4"><div class="scirc">4</div><div class="slbl">Results & AI</div></div>
-  </div>
-
-  <!-- STEP 1 -->
-  <section class="panel show" id="p1">
-    <h2>① Load Data</h2>
-    <p class="muted">Upload CSV / Excel / JSON. Tối đa 200MB. File được nạp lên API (Railway) và lưu trong Redis store.</p>
-    <div class="row">
-      <div style="flex:2"><label>File</label><input type="file" id="file" accept=".csv,.xlsx,.xls,.xlsm,.json,.txt" /></div>
-      <div><label>Dòng header (0 = đầu tiên)</label><input type="number" id="header" value="0" min="0" /></div>
-    </div>
-    <div class="btnrow"><button id="btnUpload">⬆ Upload</button></div>
-    <div id="ds-info"></div>
-  </section>
-
-  <!-- STEP 2 -->
-  <section class="panel" id="p2">
-    <h2>② Prep Data</h2>
-    <p class="muted">Phát hiện & xử lý vấn đề: thiếu giá trị, trùng lặp, outlier, mã hoá. Mỗi bước có thể Undo.</p>
-    <div class="btnrow">
-      <button class="sm" data-op="missing">Fix Missing</button>
-      <button class="sm" data-op="duplicates">Remove Duplicates</button>
-      <button class="sm" data-op="outliers">Cap Outliers (3·IQR)</button>
-      <button class="sm" data-op="remove_outliers">Remove Outlier Rows</button>
-      <button class="sm" data-op="encode" data-enc="ordinal">Encode Ordinal</button>
-      <button class="sm" data-op="encode" data-enc="nominal">Encode One-Hot</button>
-      <button class="sm sec" id="btnUndo">↶ Undo</button>
-    </div>
-    <h3>Vấn đề phát hiện</h3>
-    <div id="problems"></div>
-    <h3>Xem trước dữ liệu</h3>
-    <div id="prep-preview"></div>
-    <div class="btnrow"><button id="toStep3">Tiếp tục → Analysis</button></div>
-  </section>
-
-  <!-- STEP 3 -->
-  <section class="panel" id="p3">
-    <h2>③ Analysis & Run</h2>
-    <div class="row">
-      <div><label>Task</label><select id="task"></select></div>
-      <div id="wrap-method"><label>Thuật toán</label><select id="method"></select></div>
-      <div id="wrap-target"><label>Target (cột nhãn)</label><select id="target"></select></div>
-    </div>
-    <div class="row">
-      <div id="wrap-testsize"><label>Test size</label><input type="number" id="testsize" value="0.3" step="0.05" min="0.1" max="0.5" /></div>
-      <div id="wrap-balance"><label>Class balancing</label><select id="balance"></select></div>
-      <div id="wrap-nclusters" class="hide"><label>Số cụm (K)</label><input type="number" id="nclusters" value="3" min="2" max="10" /></div>
-    </div>
-    <div class="row" id="wrap-assoc">
-      <div><label>Min support</label><input type="number" id="minsup" value="0.05" step="0.01" min="0.01" max="1" /></div>
-      <div><label>Min confidence</label><input type="number" id="minconf" value="0.3" step="0.05" min="0" max="1" /></div>
-      <div><label>Min lift</label><input type="number" id="minlift" value="1.0" step="0.1" min="0" /></div>
-    </div>
-    <div id="wrap-features"><label>Features</label><div class="feat-box" id="features"></div></div>
-    <div class="btnrow"><button id="btnRun">▶ Run</button></div>
-    <div id="run-status"></div>
-  </section>
-
-  <!-- STEP 4 -->
-  <section class="panel" id="p4">
-    <h2>④ Results & AI</h2>
-    <div id="results"><p class="muted">Chưa có kết quả. Chạy một mô hình ở bước 3.</p></div>
-    <h3>💬 Hỏi AI</h3>
-    <p class="muted">Cần GEMINI_KEY/OPENROUTER_KEY đặt trên service web (env) để có câu trả lời.</p>
-    <textarea id="aiPrompt" placeholder="Ví dụ: Giải thích kết quả Random Forest ở trên..."></textarea>
-    <div class="btnrow"><button id="btnAsk" class="sec">Gửi</button></div>
-    <div id="aiAnswer"></div>
-  </section>
-
-  <div id="log"></div>
 </div>
 
+<div id="log" class="hide"></div>
+
 <script>
+/* ═══════════════════════════════════════════════════════════════════════════
+   JAVASCRIPT — Full SPA logic
+   ═══════════════════════════════════════════════════════════════════════════ */
 const $ = id => document.getElementById(id);
+const $$ = sel => document.querySelectorAll(sel);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-let META = null, DS = null, LASTJOB = null;
+let META = null, DS = null, DS_PROFILE = null, LASTJOB = null, ALL_RESULTS = [], CHAT_HISTORY = [];
 
-function log(msg){ const l=$('log'); l.textContent = '• '+msg+'\n'+l.textContent; }
+function log(msg){ const l=$('log'); if(l) l.textContent = '• '+msg+'\n'+l.textContent; console.log('[DM]',msg); }
+
 async function api(path, opts){
   const r = await fetch(path, opts);
   const ct = r.headers.get('content-type')||'';
+  if(ct.includes('application/vnd.openxmlformats')) return r; // xlsx blob
   const body = ct.includes('json') ? await r.json() : await r.text();
   if(!r.ok){ throw new Error((body && body.detail) ? JSON.stringify(body.detail) : (typeof body==='string'?body:r.status)); }
   return body;
 }
-function tableHTML(t){
+
+function tableHTML(t, maxRows){
   if(!t || !t.columns) return '';
+  const data = maxRows ? (t.data||[]).slice(0, maxRows) : (t.data||[]);
   let h='<table class="dt"><thead><tr>'+t.columns.map(c=>`<th>${esc(c)}</th>`).join('')+'</tr></thead><tbody>';
-  for(const row of (t.data||[])) h+='<tr>'+row.map(v=>`<td>${v==null?'':esc(v)}</td>`).join('')+'</tr>';
+  for(const row of data) h+='<tr>'+row.map(v=>`<td>${v==null?'':esc(v)}</td>`).join('')+'</tr>';
   return h+'</tbody></table>';
 }
 
-/* ── stepper ── */
-function gotoStep(n){
-  for(let i=1;i<=4;i++){ $('p'+i).classList.toggle('show', i===n); }
-  document.querySelectorAll('.step').forEach(s=>{
-    const d=+s.dataset.step; s.classList.toggle('active', d===n); s.classList.toggle('done', d<n);
+/* ── STEPPER ───────────────────────────────────────────────────────────── */
+const STEPS = ['Load Data','Prep Data','Analysis & Profiling','Advise & Predict'];
+
+function renderStepper(n){
+  // Main stepper
+  let h='';
+  STEPS.forEach((s,i)=>{
+    const step=i+1;
+    const cls = step<n?'sc-done':step===n?'sc-active':'sc-pend';
+    const lcls = step<n?'sl-done':step===n?'sl-active':'sl-pend';
+    const sym = step<n?'✓':step;
+    h+=`<div class="step" data-step="${step}"><div class="scirc ${cls}">${sym}</div><div class="slbl ${lcls}">${s}</div></div>`;
+    if(i<STEPS.length-1) h+=`<div class="sconn ${step<n?'done':'pend'}"></div>`;
   });
+  $('stepper').innerHTML=h;
+  $$('.step').forEach(s=>s.addEventListener('click',()=>{
+    const sn=+s.dataset.step; if(sn>1&&!DS){log('Hãy upload dữ liệu trước.');return;} gotoStep(sn);
+  }));
+
+  // Sidebar steps
+  let sb='';
+  STEPS.forEach((s,i)=>{
+    const step=i+1;
+    let nc,tc,ac;
+    if(step<n){nc='sn-done';tc='sbt-done';ac='';}
+    else if(step===n){nc='sn-active';tc='sbt-active';ac=' active';}
+    else{nc='sn-pend';tc='sbt-pend';ac='';}
+    const sym=step<n?'✓':step;
+    sb+=`<div class="sb-step${ac}" data-step="${step}"><div class="sb-num ${nc}">${sym}</div><div class="sb-txt ${tc}">${s}</div></div>`;
+  });
+  $('sb-steps').innerHTML=sb;
+  $$('.sb-step').forEach(s=>s.addEventListener('click',()=>{
+    const sn=+s.dataset.step; if(sn>1&&!DS){log('Hãy upload dữ liệu trước.');return;} gotoStep(sn);
+  }));
+}
+
+function gotoStep(n){
+  for(let i=1;i<=4;i++) $('p'+i).classList.toggle('show',i===n);
+  renderStepper(n);
   window.scrollTo({top:0,behavior:'smooth'});
 }
-document.querySelectorAll('.step').forEach(s=> s.addEventListener('click', ()=>{
-  const n=+s.dataset.step;
-  if(n>1 && !DS){ log('Hãy upload dữ liệu trước.'); return; }
-  gotoStep(n);
+
+/* ── MODE TOGGLE ───────────────────────────────────────────────────────── */
+$$('.mode-btn').forEach(btn=>btn.addEventListener('click',()=>{
+  $$('.mode-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  const mode=btn.dataset.mode;
+  $('mode-workflow').classList.toggle('hide',mode!=='workflow');
+  $('mode-chat').classList.toggle('hide',mode!=='chat');
 }));
 
-/* ── health + meta ── */
+/* ── TAB SYSTEM ────────────────────────────────────────────────────────── */
+function setupTabs(containerSel){
+  const container = typeof containerSel === 'string' ? document.querySelector(containerSel) : containerSel;
+  if(!container) return;
+  container.querySelectorAll('.tab-btn').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      const tabId = btn.dataset.tab;
+      const parent = btn.closest('.tabs');
+      parent.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      // Find sibling tab panels
+      const panelContainer = parent.parentElement;
+      panelContainer.querySelectorAll(':scope > .tab-panel').forEach(p=>{
+        p.classList.toggle('active', p.id === 'tab-'+tabId);
+      });
+    });
+  });
+}
+
+/* ── HEALTH + META ─────────────────────────────────────────────────────── */
 async function init(){
+  renderStepper(1);
+  setupTabs('#p3');
+  setupTabs('#tab-eda');
+
   try{ const h=await api('/health'); $('health').innerHTML = `API <b>${h.status}</b> · ${h.queue_mode}`; }
   catch(e){ $('health').textContent='API không phản hồi'; }
   try{
@@ -210,69 +669,285 @@ async function init(){
     $('balance').innerHTML = META.balance.map(b=>`<option>${b}</option>`).join('');
     onTaskChange();
   }catch(e){ log('Lỗi tải /meta: '+e.message); }
-}
-function renderDatasetInfo(){
-  $('ds-info').innerHTML = `
-    <h3>Dataset</h3>
-    <div class="card-grid">
-      <div class="stat"><div class="v">${DS.shape[0]}</div><div class="k">Rows</div></div>
-      <div class="stat"><div class="v">${DS.shape[1]}</div><div class="k">Columns</div></div>
-      <div class="stat"><div class="v">${esc(DS.suggested_target||'—')}</div><div class="k">Suggested target</div></div>
-    </div>
-    <div class="muted" style="font-size:.78rem;margin:6px 0">${esc(DS.name)}</div>
-    ${tableHTML(DS.preview)}
-    <div class="btnrow"><button id="toStep2">Tiếp tục → Prep</button></div>`;
-  $('toStep2').addEventListener('click', ()=>{ gotoStep(2); loadProblems(); });
+
+  renderAdvisorForm();
+
+  // Dropzone
+  const dz=$('dropzone'), fi=$('file');
+  dz.addEventListener('click',()=>fi.click());
+  dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('dragover')});
+  dz.addEventListener('dragleave',()=>dz.classList.remove('dragover'));
+  dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('dragover');fi.files=e.dataTransfer.files});
+  fi.addEventListener('change',()=>{
+    if(fi.files[0]) dz.querySelector('.label').textContent = `📄 ${fi.files[0].name} (${(fi.files[0].size/1024).toFixed(0)} KB)`;
+  });
 }
 
-/* ── step 1: upload ── */
+/* ── METHOD DETAILS CATALOG ────────────────────────────────────────────── */
+const METHOD_DETAILS = {
+  "Logistic Regression": { badge: "mb-clf", groupName: "CLF", desc: "Probabilistic S-curve classifier. Interpretable coefficients. Great baseline." },
+  "Linear Discriminant Analysis (LDA)": { badge: "mb-clf", groupName: "CLF", desc: "Maximises class separation. Works best with equal class covariance." },
+  "K-Nearest Neighbors (KNN)": { badge: "mb-clf", groupName: "CLF", desc: "Labels from K closest samples. Non-parametric, láng giềng gần." },
+  "Classification Trees": { badge: "mb-clf", groupName: "CLF", desc: "Builds IF-THEN decision rules. Human-readable structure." },
+  "Naive Bayes": { badge: "mb-clf", groupName: "CLF", desc: "Bayes theorem with independence assumption. Very fast on sparse data." },
+  "Support Vector Machine (SVM)": { badge: "mb-clf", groupName: "CLF", desc: "Maximum-margin hyperplane. Powerful in high-dimensional spaces." },
+  "Random Forest": { badge: "mb-clf", groupName: "CLF", desc: "Ensemble of 100 trees. Robust, accurate, feature importance ranking." },
+  "Neural Networks (MLP)": { badge: "mb-clf", groupName: "CLF", desc: "Multi-layer perceptron for complex non-linear classifications." },
+  "Linear Regression": { badge: "mb-reg", groupName: "REG", desc: "Linear relationship between features and continuous target." },
+  "Neural Networks Regression (MLP)": { badge: "mb-reg", groupName: "REG", desc: "MLP for continuous value prediction via non-linear transformations." },
+  "K-Means Clustering": { badge: "mb-clus", groupName: "CLUS", desc: "Groups data into K clusters by minimising intra-cluster variance." },
+  "Hierarchical Clustering": { badge: "mb-clus", groupName: "CLUS", desc: "Dendrogram of nested clusters. No K needed upfront." }
+};
+
+/* ── PREVIEW TABS SYSTEM ────────────────────────────────────────────────── */
+function renderPreviewTabs(containerId, preview, profile){
+  const el = $(containerId);
+  if(!el) return;
+  if(!preview || !preview.columns){
+    el.innerHTML = '';
+    return;
+  }
+  
+  const rnd = Math.random().toString(36).substring(2, 7);
+  
+  const headers = `
+    <div class="tabs" style="margin-bottom:8px; margin-top:8px;" id="tabs-${rnd}">
+      <button class="tab-btn active" data-tab="tbl-${rnd}">📄 Table</button>
+      <button class="tab-btn" data-tab="stat-${rnd}">📊 Statistics</button>
+      <button class="tab-btn" data-tab="types-${rnd}">🧬 Column Types</button>
+    </div>
+  `;
+  
+  let t1 = '<div class="tab-panel active" id="tab-tbl-'+rnd+'">';
+  t1 += '<table class="dt"><thead><tr>'+preview.columns.map(c=>`<th>${esc(c)}</th>`).join('')+'</tr></thead><tbody>';
+  for(const row of (preview.data||[])) {
+    t1 += '<tr>' + row.map(v=>`<td>${v==null?'':esc(v)}</td>`).join('') + '</tr>';
+  }
+  t1 += '</tbody></table></div>';
+  
+  let t2 = '<div class="tab-panel" id="tab-stat-'+rnd+'">';
+  if(profile && profile.describe && profile.describe.columns){
+    const d = profile.describe;
+    t2 += '<table class="dt"><thead><tr><th>Statistic</th>'+d.columns.map(c=>`<th>${esc(c)}</th>`).join('')+'</tr></thead><tbody>';
+    for(let i=0; i<(d.data||[]).length; i++){
+      const row = d.data[i];
+      const lbl = d.index ? d.index[i] : `Row ${i}`;
+      t2 += `<tr><td><b>${esc(lbl)}</b></td>` + row.map(v=>`<td>${v==null?'':esc(v)}</td>`).join('') + '</tr>';
+    }
+    t2 += '</tbody></table>';
+  } else {
+    t2 += '<p class="muted" style="padding:14px; text-align:center;">📊 Đang tải thống kê dữ liệu hoặc không khả dụng...</p>';
+  }
+  t2 += '</div>';
+  
+  let t3 = '<div class="tab-panel" id="tab-types-'+rnd+'">';
+  if(profile && profile.columns){
+    t3 += '<table class="dt"><thead><tr><th>Column</th><th>Type</th><th>Nulls</th><th>Null%</th><th>Unique</th><th>Sample</th></tr></thead><tbody>';
+    for(const col of profile.columns){
+      t3 += `<tr>
+        <td><b>${esc(col.column)}</b></td>
+        <td><span class="chip info">${esc(col.dtype)}</span></td>
+        <td>${col.missing}</td>
+        <td>${col.missing_pct}</td>
+        <td>${col.unique}</td>
+        <td class="muted">${esc(col.sample)}</td>
+      </tr>`;
+    }
+    t3 += '</tbody></table>';
+  } else {
+    t3 += '<p class="muted" style="padding:14px; text-align:center;">🧬 Đang phân tích kiểu dữ liệu...</p>';
+  }
+  t3 += '</div>';
+  
+  el.innerHTML = headers + t1 + t2 + t3;
+  setupTabs('#'+containerId);
+}
+
+/* ── WORKING ON BAR ────────────────────────────────────────────────────── */
+function renderWorkingBar(){
+  if(!DS){
+    $('working-bar').style.display='none';
+    return;
+  }
+  const cleanBadge = DS.history_len > 0 ? '<span class="chip ok" style="margin-left:8px;">✅ Cleaned</span>' : '<span class="chip info" style="margin-left:8px;">Original</span>';
+  $('working-bar').style.display='flex';
+  $('working-bar').innerHTML = `
+    <div style="display:flex; align-items:center; gap:8px; flex:1; flex-wrap:wrap;">
+      <span>Working on: 📄 <b style="color:var(--blue);">${esc(DS.name)}</b></span>
+      <span style="color:var(--muted3)">|</span>
+      <span>📊 <b>${DS.shape[0].toLocaleString()}</b> rows × <b>${DS.shape[1]}</b> cols</span>
+      <span style="color:var(--muted3)">|</span>
+      ${cleanBadge}
+    </div>
+    <div style="display:flex; align-items:center; gap:8px;">
+      <label style="margin:0; text-transform:none; font-size:.78rem; font-weight:600; display:flex; align-items:center; gap:6px;">
+        Header row:
+        <input type="number" id="header-row-input" value="${$('header').value || 0}" min="0" max="20" style="width:60px; padding:3px 6px; font-size:.78rem; display:inline-block;" />
+      </label>
+      <button id="btnUpdateHeader" class="btn-sm btn-sec" style="padding:4px 8px; font-size:.75rem;">🔄 Cập nhật header</button>
+    </div>
+  `;
+  
+  $('btnUpdateHeader').addEventListener('click', async () => {
+    const hr = parseInt($('header-row-input').value) || 0;
+    $('header').value = hr;
+    const btn = $('btnUpdateHeader');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>Cập nhật…';
+    try {
+      const activeSheetName = DS.name.split('::')[1] || null;
+      const r = await api(`/datasets/${DS.dataset_id}/reload`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({header_row: hr, sheet_name: activeSheetName})
+      });
+      DS = r;
+      log(`Cập nhật header thành dòng ${hr}`);
+      DS_PROFILE = await api(`/datasets/${DS.dataset_id}/profile`);
+      renderWorkingBar();
+      renderDatasetInfo();
+      fillColumns();
+    } catch(e) {
+      log('Lỗi cập nhật header: ' + e.message);
+      alert('Lỗi cập nhật header: ' + e.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '🔄 Cập nhật header';
+    }
+  });
+}
+
+/* ── DATASET INFO ──────────────────────────────────────────────────────── */
+function renderDatasetInfo(){
+  $('welcomeBox').style.display='none';
+  
+  let chips = '';
+  if(DS.sheet_names && DS.sheet_names.length>1){
+    chips = `
+      <div style="margin-top:10px; margin-bottom:14px;">
+        <label style="font-size:.68rem;color:var(--muted2);margin-bottom:4px;">📋 CHỌN SHEET</label>
+        <div class="sheet-chips" style="display:flex;gap:8px;flex-wrap:wrap;">
+          ${DS.sheet_names.map(s=>{
+            const active = s===(DS.name.split('::')[1]||DS.name);
+            const activeStyle = active ? 'background:var(--blued);color:#fff;box-shadow:0 0 10px rgba(59, 130, 246, 0.4);border-color:var(--blue2)' : 'background:var(--panel2);border:1px solid var(--border);color:var(--muted)';
+            return `<div class="chip-pill" data-sheet="${esc(s)}" style="padding:6px 14px;border-radius:20px;font-size:.78rem;font-weight:600;cursor:pointer;transition:all .2s;${activeStyle}">${esc(s)}</div>`;
+          }).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  const filesLoaded = (DS.sheet_names && DS.sheet_names.length) || 1;
+  const missingRateStr = DS.missing_rate != null ? (DS.missing_rate * 100).toFixed(1) + '%' : '0.0%';
+  const dupCountStr = DS.dup_count != null ? DS.dup_count.toLocaleString() : '0';
+
+  $('ds-info').innerHTML = `
+    <div class="sec-hdr"><div class="sec-icon si-green">✅</div><span class="sec-title">Dataset Loaded</span>
+      <span class="sec-sub">${esc(DS.name)}</span></div>
+    <div class="card-grid">
+      <div class="stat"><div class="v">${filesLoaded}</div><div class="k">Files Loaded</div></div>
+      <div class="stat"><div class="v">${DS.shape[0].toLocaleString()}</div><div class="k">Total Rows</div></div>
+      <div class="stat"><div class="v amber">${missingRateStr}</div><div class="k">Missing Rate</div></div>
+      <div class="stat"><div class="v red">${dupCountStr}</div><div class="k">Duplicates</div></div>
+    </div>
+    ${chips}
+    <div id="ds-preview-container" style="margin-top:14px;"></div>
+    <div class="btnrow" style="margin-top:14px;"><button id="toStep2">Tiếp tục → Prep Data</button></div>`;
+    
+  $('toStep2').addEventListener('click',()=>{gotoStep(2);loadProblems()});
+
+  if(DS.sheet_names && DS.sheet_names.length>1){
+    document.querySelectorAll('.sheet-chips .chip-pill').forEach(el=>{
+      el.addEventListener('click', async ()=>{
+        const sheet = el.dataset.sheet;
+        const hr = parseInt($('header').value) || 0;
+        el.style.opacity = '0.5';
+        try {
+          const r = await api(`/datasets/${DS.dataset_id}/reload`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({header_row: hr, sheet_name: sheet})
+          });
+          DS = r;
+          log(`Đã chuyển sang sheet ${sheet}`);
+          DS_PROFILE = await api(`/datasets/${DS.dataset_id}/profile`);
+          renderWorkingBar();
+          renderDatasetInfo();
+          fillColumns();
+        } catch(e) {
+          log('Lỗi chuyển sheet: '+e.message);
+          alert('Lỗi chuyển sheet: '+e.message);
+        }
+      });
+    });
+  }
+
+  renderPreviewTabs('ds-preview-container', DS.preview, DS_PROFILE);
+}
+
+/* ── STEP 1: UPLOAD ────────────────────────────────────────────────────── */
 $('btnUpload').addEventListener('click', async ()=>{
-  const f = $('file').files[0];
-  if(!f){ log('Chọn file trước.'); return; }
+  const f=$('file').files[0];
+  if(!f){log('Chọn file trước.');return;}
   const b=$('btnUpload'); b.disabled=true; b.innerHTML='<span class="spinner"></span>Uploading…';
   try{
-    const fd=new FormData(); fd.append('file', f); fd.append('header_row', $('header').value||'0');
-    DS = await api('/datasets', {method:'POST', body:fd});
+    const fd=new FormData(); fd.append('file',f); fd.append('header_row',$('header').value||'0');
+    DS = await api('/datasets',{method:'POST',body:fd});
     log(`Đã nạp ${DS.name} (${DS.shape[0]}×${DS.shape[1]}), id=${DS.dataset_id}`);
-    renderDatasetInfo(); fillColumns();
-  }catch(e){ log('Upload lỗi: '+e.message); alert('Upload lỗi: '+e.message); }
-  finally{ b.disabled=false; b.textContent='⬆ Upload'; }
+    DS_PROFILE = await api(`/datasets/${DS.dataset_id}/profile`);
+    renderWorkingBar();
+    renderDatasetInfo();
+    fillColumns();
+  }catch(e){log('Upload lỗi: '+e.message);alert('Upload lỗi: '+e.message)}
+  finally{b.disabled=false;b.textContent='⬆ Upload to API'}
 });
 
-/* ── step 2: prep ── */
+/* ── STEP 2: PREP ──────────────────────────────────────────────────────── */
 async function loadProblems(){
   try{
-    const r = await api(`/datasets/${DS.dataset_id}/problems`);
+    const r=await api(`/datasets/${DS.dataset_id}/problems`);
     $('problems').innerHTML = r.problems.map(p=>`
       <div class="prob"><span class="chip ${p.sev}">${esc(p.type)}</span>
-        <div><div>${esc(p.msg)}</div>${p.fix?`<div class="muted" style="font-size:.72rem">→ ${esc(p.fix)}</div>`:''}</div></div>`).join('');
-    $('prep-preview').innerHTML = tableHTML(DS.preview);
-  }catch(e){ log('Lỗi /problems: '+e.message); }
+        <div><div>${esc(p.msg)}</div>${p.fix?`<div class="muted2" style="font-size:.72rem">→ ${esc(p.fix)}</div>`:''}</div></div>`).join('');
+    renderPreviewTabs('prep-preview', DS.preview, DS_PROFILE);
+  }catch(e){log('Lỗi /problems: '+e.message)}
 }
-document.querySelectorAll('#p2 button[data-op]').forEach(btn=> btn.addEventListener('click', async ()=>{
+
+$$('#p2 button[data-op]').forEach(btn=>btn.addEventListener('click', async ()=>{
   const op=btn.dataset.op, body={op}; if(op==='encode') body.encode_type=btn.dataset.enc;
   btn.disabled=true;
   try{
-    const r = await api(`/datasets/${DS.dataset_id}/prep`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
-    DS = r; log('Prep: '+r.message); renderAfterPrep(r);
-  }catch(e){ log('Prep lỗi: '+e.message); alert('Prep lỗi: '+e.message); }
-  finally{ btn.disabled=false; }
+    const r=await api(`/datasets/${DS.dataset_id}/prep`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    DS=r; log('Prep: '+r.message);
+    $('prep-msg').innerHTML=`<div class="note success">${esc(r.message)}</div>`;
+    DS_PROFILE = await api(`/datasets/${DS.dataset_id}/profile`);
+    renderWorkingBar();
+    renderAfterPrep(r);
+  }catch(e){log('Prep lỗi: '+e.message);$('prep-msg').innerHTML=`<div class="note error">${esc(e.message)}</div>`}
+  finally{btn.disabled=false}
 }));
+
 $('btnUndo').addEventListener('click', async ()=>{
-  try{ const r=await api(`/datasets/${DS.dataset_id}/undo`,{method:'POST'}); DS=r; log('Undo. history='+r.history_len); renderAfterPrep(r); loadProblems(); }
-  catch(e){ log('Undo lỗi: '+e.message); }
+  try{const r=await api(`/datasets/${DS.dataset_id}/undo`,{method:'POST'});DS=r;log('Undo. history='+r.history_len);
+    $('prep-msg').innerHTML=`<div class="note info">Undo thành công. History: ${r.history_len}</div>`;
+    DS_PROFILE = await api(`/datasets/${DS.dataset_id}/profile`);
+    renderWorkingBar();
+    renderAfterPrep(r);loadProblems();
+  }catch(e){log('Undo lỗi: '+e.message)}
 });
+
 function renderAfterPrep(r){
-  $('prep-preview').innerHTML = tableHTML(r.preview);
-  if(r.problems){ $('problems').innerHTML = r.problems.map(p=>`
-      <div class="prob"><span class="chip ${p.sev}">${esc(p.type)}</span><div>${esc(p.msg)}</div></div>`).join(''); }
+  renderPreviewTabs('prep-preview', r.preview, DS_PROFILE);
+  if(r.problems) $('problems').innerHTML = r.problems.map(p=>`
+    <div class="prob"><span class="chip ${p.sev}">${esc(p.type)}</span><div>${esc(p.msg)}</div></div>`).join('');
   fillColumns();
 }
-$('toStep3').addEventListener('click', ()=>{ fillColumns(); gotoStep(3); });
 
-/* ── step 3: run config ── */
+$('toStep3').addEventListener('click',()=>{fillColumns();gotoStep(3)});
+
+/* ── STEP 3: CONFIG ────────────────────────────────────────────────────── */
 function fillColumns(){
-  const cols = DS.columns||[];
+  const cols=DS.columns||[];
   $('target').innerHTML = cols.map(c=>`<option ${c===DS.suggested_target?'selected':''}>${esc(c)}</option>`).join('');
   renderFeatures();
 }
@@ -280,45 +955,132 @@ function renderFeatures(){
   const cols=DS.columns||[], tgt=$('target').value;
   $('features').innerHTML = cols.map(c=>`<label><input type="checkbox" value="${esc(c)}" ${c!==tgt?'checked':''}>${esc(c)}</label>`).join('');
 }
-function selectedFeatures(){ return [...document.querySelectorAll('#features input:checked')].map(i=>i.value); }
+function selectedFeatures(){ return [...$$('#features input:checked')].map(i=>i.value); }
+
 function onTaskChange(){
+  if(!META) return;
   const task=$('task').value;
   const methods=(META.methods[task]||[]);
+  
   $('method').innerHTML = methods.map(m=>`<option>${esc(m)}</option>`).join('');
   $('wrap-method').classList.toggle('hide', methods.length===0);
-  const isAssoc = task==='association', isClu = task==='clustering', isClf=task==='classification';
+  
+  const container = $('method-cards-container');
+  if(container) {
+    if(methods.length === 0){
+      container.innerHTML = '';
+    } else {
+      container.innerHTML = methods.map((m, idx)=>{
+        const det = METHOD_DETAILS[m] || {badge: 'mb-clf', groupName: 'ML', desc: ''};
+        const active = idx === 0;
+        const selCls = active ? ' sel' : '';
+        const badgeSym = active ? '✅ ' : '';
+        return `
+          <div class="method-card${selCls}" data-method="${esc(m)}">
+            <span class="mbadge ${det.badge}">${det.groupName}</span>
+            <div class="method-name">${badgeSym}${esc(m)}</div>
+            <div class="method-desc">${esc(det.desc || m)}</div>
+          </div>
+        `;
+      }).join('');
+      
+      if(methods.length > 0) {
+        $('method').value = methods[0];
+        $('method').dispatchEvent(new Event('change'));
+      }
+      
+      container.querySelectorAll('.method-card').forEach(card=>{
+        card.addEventListener('click', ()=>{
+          container.querySelectorAll('.method-card').forEach(c=>{
+            c.classList.remove('sel');
+            const nameEl = c.querySelector('.method-name');
+            nameEl.textContent = nameEl.textContent.replace('✅ ', '');
+          });
+          card.classList.add('sel');
+          const nameEl = card.querySelector('.method-name');
+          nameEl.textContent = '✅ ' + nameEl.textContent;
+          
+          const val = card.dataset.method;
+          $('method').value = val;
+          $('method').dispatchEvent(new Event('change'));
+        });
+      });
+    }
+  }
+
+  const isAssoc=task==='association', isClu=task==='clustering', isClf=task==='classification';
   $('wrap-target').classList.toggle('hide', isAssoc||isClu);
   $('wrap-testsize').classList.toggle('hide', isAssoc||isClu);
   $('wrap-balance').classList.toggle('hide', !isClf);
   $('wrap-nclusters').classList.toggle('hide', !isClu);
   $('wrap-assoc').classList.toggle('hide', !isAssoc);
   $('wrap-features').classList.toggle('hide', isAssoc);
+  renderHyperparams();
 }
 $('task').addEventListener('change', onTaskChange);
 $('target').addEventListener('change', renderFeatures);
+$('method').addEventListener('change', renderHyperparams);
 
+/* ── HYPERPARAMETERS ───────────────────────────────────────────────────── */
+const HP_DEFS = {
+  'Logistic Regression': [{id:'C',label:'C (regularization)',type:'number',val:1.0,step:0.1},{id:'penalty',label:'Penalty',type:'select',opts:['l2','l1','none'],val:'l2'},{id:'solver',label:'Solver',type:'select',opts:['lbfgs','liblinear','newton-cg','sag'],val:'lbfgs'}],
+  'K-Nearest Neighbors (KNN)': [{id:'n_neighbors',label:'K (neighbors)',type:'number',val:3,min:1,max:50},{id:'weights',label:'Weights',type:'select',opts:['uniform','distance'],val:'uniform'},{id:'metric',label:'Metric',type:'select',opts:['minkowski','euclidean','manhattan'],val:'minkowski'}],
+  'Classification Trees': [{id:'max_depth',label:'Max depth',type:'number',val:5,min:1,max:30},{id:'min_samples_leaf',label:'Min samples/leaf',type:'number',val:1,min:1},{id:'criterion',label:'Criterion',type:'select',opts:['gini','entropy'],val:'gini'}],
+  'Naive Bayes': [{id:'laplace_alpha',label:'Laplace α',type:'number',val:1.0,step:0.1,min:0}],
+  'Support Vector Machine (SVM)': [{id:'C',label:'C',type:'number',val:1.0,step:0.1},{id:'kernel',label:'Kernel',type:'select',opts:['rbf','linear','poly','sigmoid'],val:'rbf'},{id:'gamma',label:'Gamma',type:'select',opts:['scale','auto'],val:'scale'}],
+  'Random Forest': [{id:'n_estimators',label:'Trees',type:'number',val:100,min:10,max:500},{id:'max_depth',label:'Max depth (0=auto)',type:'number',val:0,min:0,max:30},{id:'min_samples_leaf',label:'Min samples/leaf',type:'number',val:1,min:1}],
+  'Neural Networks (MLP)': [{id:'activation',label:'Activation',type:'select',opts:['relu','tanh','logistic'],val:'relu'},{id:'learning_rate_init',label:'Learning rate',type:'number',val:0.001,step:0.0001,min:0.0001}],
+};
+
+function renderHyperparams(){
+  const method=$('method').value;
+  const defs=HP_DEFS[method];
+  if(!defs||!defs.length){$('hp-section').classList.add('hide');return;}
+  $('hp-section').classList.remove('hide');
+  $('hp-grid').innerHTML = defs.map(d=>{
+    if(d.type==='select') return `<div><label>${d.label}</label><select data-hp="${d.id}">${d.opts.map(o=>`<option${o===d.val?' selected':''}>${o}</option>`).join('')}</select></div>`;
+    return `<div><label>${d.label}</label><input type="number" data-hp="${d.id}" value="${d.val}" ${d.step?`step="${d.step}"`:''} ${d.min!=null?`min="${d.min}"`:''} ${d.max!=null?`max="${d.max}"`:''}/></div>`;
+  }).join('');
+}
+
+function getHyperparams(){
+  const hp={};
+  $$('#hp-grid [data-hp]').forEach(el=>{
+    const v=el.value;
+    hp[el.dataset.hp]=isNaN(Number(v))?v:Number(v);
+  });
+  return Object.keys(hp).length?hp:undefined;
+}
+
+/* ── STEP 3: RUN ML ────────────────────────────────────────────────────── */
 $('btnRun').addEventListener('click', async ()=>{
   const task=$('task').value;
   const body={task, method:$('method').value,
     test_size:parseFloat($('testsize').value), balance:$('balance').value,
     n_clusters:parseInt($('nclusters').value),
     min_support:parseFloat($('minsup').value), min_confidence:parseFloat($('minconf').value), min_lift:parseFloat($('minlift').value)};
-  if(task!=='association' && task!=='clustering') body.target=$('target').value;
+  if(task!=='association'&&task!=='clustering') body.target=$('target').value;
   if(task!=='association') body.features=selectedFeatures();
+  const hp=getHyperparams(); if(hp) body.hyperparams=hp;
   $('run-status').innerHTML='<span class="spinner"></span>Đang enqueue…';
   try{
-    const j = await api(`/datasets/${DS.dataset_id}/run`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    const j=await api(`/datasets/${DS.dataset_id}/run`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     log(`Enqueue job ${j.job_id} (${j.status})`);
     const fin = await pollJob(j.job_id);
-    LASTJOB = fin.job_id;
-    $('run-status').innerHTML = `<div class="note success">Job ${fin.job_id} finished ✓</div>`;
-    renderResults(fin.result); gotoStep(4);
-  }catch(e){ $('run-status').innerHTML=`<div class="note error">${esc(e.message)}</div>`; log('Run lỗi: '+e.message); }
+    LASTJOB=fin.job_id;
+    $('run-status').innerHTML=`<div class="note success">Job ${fin.job_id} finished ✓</div>`;
+    ALL_RESULTS.push({...fin.result, _method: body.method||task, _task: task});
+    renderResults(fin.result);
+    renderFitnessReport(ALL_RESULTS);
+    renderComparisonTable(ALL_RESULTS);
+    gotoStep(4);
+  }catch(e){$('run-status').innerHTML=`<div class="note error">${esc(e.message)}</div>`;log('Run lỗi: '+e.message)}
 });
+
 async function pollJob(id){
   for(let i=0;i<150;i++){
     const j=await api(`/jobs/${id}`);
-    $('run-status').innerHTML=`<span class="spinner"></span>Job ${esc(j.status)}… (${i})`;
+    $('run-status').innerHTML=`<span class="spinner"></span>Job ${esc(j.status)}… (${i}s)`;
     if(j.status==='finished') return j;
     if(j.status==='failed') throw new Error(j.error||'job failed');
     await sleep(1500);
@@ -326,32 +1088,311 @@ async function pollJob(id){
   throw new Error('Job timeout');
 }
 
-/* ── step 4: results ── */
+/* ── STEP 4: RENDER RESULTS ────────────────────────────────────────────── */
+function metricsTableHTML(metrics){
+  const items = [
+    {name:'Accuracy (#correct)',key:'Val_Accuracy',formula:''},
+    {name:'Specificity',key:'Val_Specificity',formula:'TN/(TN+FP)'},
+    {name:'Sensitivity (Recall)',key:'Val_Sensitivity',formula:'TP/(TP+FN)'},
+    {name:'Precision',key:'Precision',formula:'TP/(TP+FP)'},
+    {name:'F1 Score',key:'F1-Score',formula:'2*P*R/(P+R)'},
+    {name:'AUC (ROC)',key:'AUC',formula:'Area Under ROC'},
+  ];
+  let rows='';
+  for(const it of items){
+    const val = metrics[it.key]||metrics[it.name]||'—';
+    const numVal = parseFloat(val);
+    const pct = !isNaN(numVal)? Math.min(100,Math.round(numVal*100)):0;
+    const cls = numVal>=0.8?'pf-green':numVal>=0.6?'pf-amber':'pf-red';
+    rows+=`<tr>
+      <td class="metric-name">${it.name}</td>
+      <td class="metric-formula">${it.formula}</td>
+      <td class="metric-val">${esc(val)}${!isNaN(numVal)&&numVal<=1?`<div class="progress-bar"><div class="progress-fill ${cls}" style="width:${pct}%"></div></div>`:''}</td>
+    </tr>`;
+  }
+  return `<table class="metrics-table"><thead><tr><th>Metric</th><th>Formula</th><th style="text-align:right">Value</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
 function renderResults(res){
-  if(!res){ $('results').innerHTML='<p class="muted">Không có kết quả.</p>'; return; }
-  let h='<h3>Metrics</h3><div class="card-grid">';
-  for(const [k,v] of Object.entries(res.metrics||{})) h+=`<div class="stat"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`;
+  if(!res){$('results').innerHTML='<p class="muted">Không có kết quả.</p>';return;}
+  let h='';
+
+  // Metrics cards
+  h+='<div class="sec-hdr"><div class="sec-icon si-blue">📊</div><span class="sec-title">Metrics Summary</span></div>';
+  h+='<div class="card-grid">';
+  for(const [k,v] of Object.entries(res.metrics||{})){
+    const cls = k.includes('Accuracy')||k.includes('F1')||k.includes('R²')?'green':k.includes('Error')||k.includes('RMSE')?'red':'';
+    h+=`<div class="stat"><div class="v ${cls}">${esc(v)}</div><div class="k">${esc(k)}</div></div>`;
+  }
   h+='</div>';
-  if((res.notes||[]).length){ h+='<h3>Ghi chú</h3>'; for(const n of res.notes) h+=`<div class="note ${n.level}">${esc(n.msg)}</div>`; }
-  if((res.figures||[]).length){ h+='<h3>Biểu đồ</h3>'; for(const f of res.figures) h+=`<figure><img src="data:image/png;base64,${f.png_base64}"><figcaption>${esc(f.label)}</figcaption></figure>`; }
+
+  // Notes
+  if((res.notes||[]).length){
+    h+='<h3>📝 Ghi chú</h3>';
+    for(const n of res.notes) h+=`<div class="note ${n.level}">${esc(n.msg)}</div>`;
+  }
+
+  // Training/Validation split view
+  const hasTrain = res.metrics?.Train_Accuracy;
+  if(hasTrain){
+    h+='<div class="result-header rh-train">Training: Classification Summary</div>';
+    h+=metricsTableHTML({...res.metrics, Val_Accuracy: res.metrics.Train_Accuracy,
+      Val_Sensitivity: res.metrics.Train_Sensitivity, Val_Specificity: res.metrics.Train_Specificity,
+      'F1-Score': res.metrics.Train_F1});
+    h+='<div class="result-header rh-val">Validation: Classification Summary</div>';
+    h+=metricsTableHTML(res.metrics);
+  }
+
+  // Figures
+  if((res.figures||[]).length){
+    h+='<div class="sec-hdr"><div class="sec-icon si-purple">📈</div><span class="sec-title">Biểu đồ</span></div>';
+    h+='<div class="fig-grid">';
+    for(const f of res.figures) h+=`<figure><img src="data:image/png;base64,${f.png_base64}" loading="lazy"><figcaption>${esc(f.label)}</figcaption></figure>`;
+    h+='</div>';
+  }
+
+  // Tables
   const tnames=Object.keys(res.tables||{});
-  if(tnames.length){ h+='<h3>Bảng</h3>'; for(const name of tnames){ const t=res.tables[name];
-    h+=`<div class="muted" style="margin-top:8px;font-weight:600">${esc(name)}</div>`;
-    h+= (typeof t==='string') ? `<pre style="font-size:.72rem;overflow:auto;background:var(--panel2);padding:8px;border-radius:8px">${esc(t)}</pre>` : tableHTML(t);
-  }}
-  h+=`<div class="btnrow"><a href="/jobs/${res.run_id}/export.xlsx" target="_blank"><button class="green">⬇ Export Excel</button></a></div>`;
+  if(tnames.length){
+    h+='<div class="sec-hdr"><div class="sec-icon si-green">📋</div><span class="sec-title">Bảng dữ liệu</span></div>';
+    for(const name of tnames){
+      const t=res.tables[name];
+      h+=`<details><summary>${esc(name)}</summary><div class="detail-body">`;
+      h+= (typeof t==='string') ? `<pre style="font-size:.72rem;overflow:auto;background:var(--panel2);padding:8px;border-radius:8px">${esc(t)}</pre>` : tableHTML(t);
+      h+='</div></details>';
+    }
+  }
+
+  // Export button
+  if(res.run_id){
+    h+=`<div class="btnrow"><a href="/jobs/${res.run_id}/export.xlsx" target="_blank"><button class="btn-green">⬇ Export Excel</button></a></div>`;
+  }
+
   $('results').innerHTML=h;
 }
 
-/* ── AI ── */
-$('btnAsk').addEventListener('click', async ()=>{
-  const p=$('aiPrompt').value.trim(); if(!p) return;
-  $('aiAnswer').innerHTML='<span class="spinner"></span>Đang hỏi AI…';
-  try{ const r=await api('/ai/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:p})});
-    $('aiAnswer').innerHTML=`<div class="note info" style="white-space:pre-wrap">${esc(r.answer)}</div>`; }
-  catch(e){ $('aiAnswer').innerHTML=`<div class="note error">${esc(e.message)}</div>`; }
+/* ── FITNESS REPORT ────────────────────────────────────────────────────── */
+function renderFitnessReport(results){
+  if(!results.length){$('fitness-report').innerHTML='';return;}
+  const verdictMap = {
+    A:['✅ Highly suitable — ready for deployment consideration','fv-A'],
+    B:['✅ Suitable — good performance, minor improvements possible','fv-B'],
+    C:['⚠️ Moderate — use with caution; try feature engineering','fv-C'],
+    D:['❌ Not recommended — poor fit; review data quality','fv-D'],
+  };
+  const adviceClf={A:'F1 và Accuracy cao. Kiểm tra overfitting bằng cross-validation.',B:'Kết quả tốt. Thử tune hyperparameters hoặc thêm features.',C:'Hiệu suất trung bình. Kiểm tra data quality, class imbalance, feature relevance.',D:'Model kém. Review lại Step 2 Prep Data.'};
+  const adviceReg={A:'R² tốt — model giải thích phần lớn variance.',B:'Fit tốt. Thử thêm interaction terms.',C:'Fit yếu. Thử Neural Networks MLP.',D:'R² rất thấp. Xem xét lại target và features.'};
+
+  let cards='';
+  for(const r of results){
+    const m=r.metrics||{};
+    let grade,score,scoreLbl,advice;
+    if(m['F1-Score']){
+      const f=parseFloat(m['F1-Score']); score=f;
+      grade=f>=0.9?'A':f>=0.75?'B':f>=0.6?'C':'D';
+      scoreLbl=`F1=${m['F1-Score']} Acc=${m.Accuracy||'?'} AUC=${m.AUC||'?'}`;
+      advice=adviceClf[grade];
+    } else if(m['R²']){
+      const r2=parseFloat(m['R²']); score=r2;
+      grade=r2>=0.8?'A':r2>=0.6?'B':r2>=0.4?'C':'D';
+      scoreLbl=`R²=${m['R²']} RMSE=${m.RMSE||'?'}`;
+      advice=adviceReg[grade];
+    } else { grade='C';score=0.5;scoreLbl='See metrics';advice='Review metrics above.'; }
+    const [verdict,vcls]=verdictMap[grade];
+    const pct=Math.min(100,Math.round(Math.max(score,0)*100));
+    cards+=`<div class="fitness-card">
+      <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:3px">
+        <div class="fitness-grade fg-${grade}">${grade}</div>
+        <div><div class="fitness-method">${esc(m.Method||r._method||'Model')}</div>
+          <div class="fitness-score">${esc(scoreLbl)}</div></div></div>
+      <div class="fitness-bar-wrap"><div class="fitness-bar fb-${grade}" style="width:${pct}%"></div></div>
+      <div class="fitness-verdict ${vcls}">${verdict}</div>
+      <div class="fitness-advice">${advice}</div></div>`;
+  }
+  $('fitness-report').innerHTML=`<div class="sec-hdr"><div class="sec-icon si-amber">🏅</div><span class="sec-title">Model Fitness Report</span><span class="sec-sub">Grade A–D · Verdict · Advice</span></div><div class="fitness-grid">${cards}</div>`;
+}
+
+/* ── COMPARISON TABLE ──────────────────────────────────────────────────── */
+function renderComparisonTable(results){
+  if(results.length<2){$('comparison-section').innerHTML='';return;}
+  const keys=['Method','Accuracy','Precision','F1-Score','AUC','R²','RMSE','Silhouette'];
+  let ths=keys.map(k=>`<th>${k}</th>`).join('');
+  let rows='';
+  for(const r of results){
+    const m=r.metrics||{};
+    rows+='<tr>'+keys.map(k=>`<td>${esc(m[k]||'—')}</td>`).join('')+'</tr>';
+  }
+  $('comparison-section').innerHTML=`<div class="sec-hdr"><div class="sec-icon si-blue">📊</div><span class="sec-title">Model Comparison</span></div><table class="cmp-table"><thead><tr>${ths}</tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+/* ── EDA PROFILING ─────────────────────────────────────────────────────── */
+$('btnLoadEDA').addEventListener('click', async ()=>{
+  if(!DS){alert('Upload dữ liệu trước.');return;}
+  $('btnLoadEDA').disabled=true; $('btnLoadEDA').innerHTML='<span class="spinner"></span>Generating…';
+  try{
+    const data = await api(`/datasets/${DS.dataset_id}/eda`);
+    // Overview
+    if(data.profile){
+      let h='<table class="dt"><thead><tr><th>Column</th><th>Type</th><th>Missing</th><th>Missing%</th><th>Unique</th><th>Stats / Top Values</th><th>Sample</th></tr></thead><tbody>';
+      for(const c of data.profile) h+=`<tr><td><b>${esc(c.column)}</b></td><td>${esc(c.dtype)}</td><td>${c.missing}</td><td>${c.missing_pct}</td><td>${c.unique}</td><td>${esc(c.stats)}</td><td>${esc(c.sample)}</td></tr>`;
+      h+='</tbody></table>';
+      $('eda-overview-content').innerHTML=h;
+    }
+    // Distributions
+    let distH='';
+    if(data.distributions) distH+=`<figure><img src="data:image/png;base64,${data.distributions}"><figcaption>Numeric distributions (pink line = mean)</figcaption></figure>`;
+    if(data.categorical) distH+=`<figure><img src="data:image/png;base64,${data.categorical}"><figcaption>Categorical frequencies</figcaption></figure>`;
+    $('eda-dist-content').innerHTML=distH||'<p class="muted">No distribution charts available.</p>';
+    // Correlations
+    let corrH='';
+    if(data.correlation_heatmap) corrH+=`<figure><img src="data:image/png;base64,${data.correlation_heatmap}"><figcaption>Red=positive · Blue=negative · White=no correlation</figcaption></figure>`;
+    if(data.strong_correlations?.length){
+      corrH+='<h3>⚡ Highly correlated pairs (|r| ≥ 0.75)</h3><table class="dt"><thead><tr><th>Feature A</th><th>Feature B</th><th>Correlation</th><th>Strength</th></tr></thead><tbody>';
+      for(const p of data.strong_correlations) corrH+=`<tr><td>${esc(p.feature_a)}</td><td>${esc(p.feature_b)}</td><td>${p.correlation}</td><td>${p.strength==='strong_90'?'🔴 Strong (≥0.9)':'🟡 Moderate'}</td></tr>`;
+      corrH+='</tbody></table>';
+    }
+    $('eda-corr-content').innerHTML=corrH||'<p class="muted">Need at least 2 numeric columns.</p>';
+    // Missing & Outliers
+    let missH='';
+    if(data.missing_chart) missH+=`<figure><img src="data:image/png;base64,${data.missing_chart}"><figcaption>Red=&gt;30% critical · Amber=10-30% · Blue=&lt;10%</figcaption></figure>`;
+    else missH+='<div class="note success">✅ No missing values found in this dataset.</div>';
+    if(data.outlier_boxplots) missH+=`<figure><img src="data:image/png;base64,${data.outlier_boxplots}"><figcaption>Pink=median · Dots beyond whiskers=outliers</figcaption></figure>`;
+    $('eda-miss-content').innerHTML=missH;
+  }catch(e){log('EDA lỗi: '+e.message);alert('EDA lỗi: '+e.message)}
+  finally{$('btnLoadEDA').disabled=false;$('btnLoadEDA').textContent='🔄 Generate EDA Charts'}
 });
 
+/* ── SMART ADVISOR ─────────────────────────────────────────────────────── */
+const ADVISOR_RECS = {
+  'clf_high_no': [['Logistic Regression','primary','Interpretable baseline — coefficients show feature importance'],['Classification Trees','primary','IF-THEN rules management can understand'],['Naive Bayes','alt','Fast, probabilistic — good baseline'],['Random Forest','alt','Good accuracy + feature importance ranking']],
+  'clf_high_yes':[['Random Oversampling','prereq','Balance classes before training'],['Logistic Regression','primary','Với class_weight=balanced, interpretable'],['Classification Trees','primary','Robust with balanced weights'],['Random Forest','alt','Handles imbalance well']],
+  'clf_low_no':  [['Random Forest','primary','Ensemble of 100 trees — robust, accurate'],['Neural Networks (MLP)','primary','Non-linear patterns'],['Support Vector Machine (SVM)','alt','Powerful in high dimensions'],['K-Nearest Neighbors (KNN)','alt','Simple non-parametric']],
+  'clf_low_yes': [['SMOTE','prereq','Synthetic minority oversampling'],['Random Forest','primary','Best all-round with imbalance'],['Neural Networks (MLP)','alt','Complex patterns'],['Support Vector Machine (SVM)','alt','Maximum-margin with balanced weights']],
+  'reg_high':    [['Linear Regression','primary','Interpretable coefficients, baseline'],['Neural Networks Regression (MLP)','alt','Non-linear relationships']],
+  'reg_low':     [['Neural Networks Regression (MLP)','primary','Non-linear function approximation'],['Linear Regression','alt','Baseline comparison']],
+  'clus':        [['K-Means Clustering','primary','Fast, scalable — use Elbow curve for K'],['Hierarchical Clustering','alt','Dendrogram shows nested structure']],
+  'assoc':       [['Association Rules (Apriori)','primary','IF-THEN patterns in transactions']],
+};
+
+function renderAdvisorForm(){
+  $('advisor-form').innerHTML=`
+    <div class="quiz-card"><div class="quiz-q">1️⃣ Mục tiêu phân tích của bạn là gì?</div>
+      <div class="quiz-hint">Bạn muốn dự đoán kết quả cụ thể hay khám phá cấu trúc ẩn?</div>
+      <div class="quiz-opts">
+        <label><input type="radio" name="adv1" value="clf" checked> 🎯 Dự đoán một kết quả (classification / regression)</label>
+        <label><input type="radio" name="adv1" value="clus"> 🔮 Phân nhóm / tìm cụm tự nhiên (clustering)</label>
+        <label><input type="radio" name="adv1" value="assoc"> 🔗 Tìm items thường đi cùng nhau (association rules)</label>
+      </div></div>
+    <div class="quiz-card" id="adv-q2"><div class="quiz-q">2️⃣ Target variable thuộc loại nào?</div>
+      <div class="quiz-opts">
+        <label><input type="radio" name="adv2" value="clf" checked> 📌 Category / nhãn rời rạc (Yes/No, Loại A/B/C)</label>
+        <label><input type="radio" name="adv2" value="reg"> 📊 Số liên tục (giá tiền, doanh thu)</label>
+      </div></div>
+    <div class="quiz-card" id="adv-q3"><div class="quiz-q">3️⃣ Phân phối các class trong dữ liệu?</div>
+      <div class="quiz-hint">Ví dụ: 95% "No Churn" và 5% "Churn" → mất cân bằng</div>
+      <div class="quiz-opts">
+        <label><input type="radio" name="adv3" value="no" checked> ⚖️ Tương đối cân bằng</label>
+        <label><input type="radio" name="adv3" value="yes"> ⚠️ Mất cân bằng</label>
+      </div></div>
+    <div class="quiz-card"><div class="quiz-q">4️⃣ Mức độ cần giải thích kết quả?</div>
+      <div class="quiz-opts">
+        <label><input type="radio" name="adv4" value="high" checked> 🔍 Cao — cần giải thích cho management/audit</label>
+        <label><input type="radio" name="adv4" value="low"> ⚡ Thấp — chỉ cần accuracy cao nhất</label>
+      </div></div>
+    <div class="btnrow"><button id="btnAdvisor">🎯 Generate Recommendations</button></div>`;
+
+  // Toggle Q2/Q3 visibility
+  $$('input[name=adv1]').forEach(r=>r.addEventListener('change',()=>{
+    const v=r.value;
+    $('adv-q2').style.display=v==='clf'?'':'none';
+    $('adv-q3').style.display=v==='clf'?'':'none';
+  }));
+
+  $('btnAdvisor').addEventListener('click',()=>{
+    const goal = document.querySelector('input[name=adv1]:checked').value;
+    const targetType = document.querySelector('input[name=adv2]:checked')?.value||'clf';
+    const imbalanced = document.querySelector('input[name=adv3]:checked')?.value||'no';
+    const interp = document.querySelector('input[name=adv4]:checked').value;
+
+    let key;
+    if(goal==='clus') key='clus';
+    else if(goal==='assoc') key='assoc';
+    else if(goal==='clf'&&targetType==='reg') key=interp==='high'?'reg_high':'reg_low';
+    else key=`clf_${interp}_${imbalanced}`;
+
+    const recs=ADVISOR_RECS[key]||[];
+    const tierCfg={prereq:['rb-pre','⚠️ Prerequisite','ri-prereq'],primary:['rb-pri','⭐ Primary','ri-primary'],alt:['rb-alt','🔵 Alternative','ri-alt']};
+
+    // Decision path
+    let path='';
+    if(goal==='clf'){
+      path+=`<span class="dp-node dp-blue">Supervised</span><span class="dp-arrow">→</span>`;
+      path+=targetType==='reg'?'<span class="dp-node dp-purple">Regression</span>':'<span class="dp-node dp-blue">Classification</span>';
+    } else if(goal==='clus'){
+      path+='<span class="dp-node dp-green">Unsupervised</span><span class="dp-arrow">→</span><span class="dp-node dp-green">Clustering</span>';
+    } else {
+      path+='<span class="dp-node dp-green">Unsupervised</span><span class="dp-arrow">→</span><span class="dp-node dp-purple">Association</span>';
+    }
+    path+=`<span class="dp-arrow">→</span><span class="dp-node dp-${interp==='high'?'amber':'green'}">${interp==='high'?'High interpretability':'High accuracy'}</span>`;
+    if(imbalanced==='yes') path+='<span class="dp-arrow">→</span><span class="dp-node dp-amber">⚠️ Imbalanced</span>';
+
+    let h=`<div style="font-size:.68rem;font-weight:700;color:var(--muted3);text-transform:uppercase;letter-spacing:.07em;margin:12px 0 4px">Decision Path</div>`;
+    h+=`<div class="decision-path">${path}</div>`;
+    h+=`<div style="font-size:.68rem;font-weight:700;color:var(--muted3);text-transform:uppercase;letter-spacing:.07em;margin:14px 0 6px">Recommended Algorithms</div>`;
+    for(const [mname,tier,why] of recs){
+      const [bc,label,rc]=tierCfg[tier]||tierCfg.alt;
+      h+=`<div class="rec-item ${rc}"><span class="rec-badge ${bc}">${label}</span><div><div class="rec-name">${mname}</div><div class="rec-why">${why}</div></div></div>`;
+    }
+    $('advisor-result').innerHTML=h;
+  });
+}
+
+/* ── AI CHAT ───────────────────────────────────────────────────────────── */
+async function sendAIMessage(prompt, targetMsgs, targetInput){
+  if(!prompt.trim()) return;
+  CHAT_HISTORY.push({role:'user',content:prompt});
+  renderChatMessages(targetMsgs);
+  targetInput.value='';
+
+  // Build context
+  let context='';
+  if(DS) context+=`Data: ${DS.name} (${DS.shape[0]}×${DS.shape[1]}) columns: ${DS.columns.join(', ')}\n`;
+  if(ALL_RESULTS.length){
+    context+='ML Results:\n';
+    for(const r of ALL_RESULTS){
+      const m=r.metrics||{};
+      context+=`- ${m.Method||'Model'}: ${Object.entries(m).map(([k,v])=>`${k}=${v}`).join(', ')}\n`;
+    }
+  }
+  const fullPrompt = context ? `Context:\n${context}\n\nUser question: ${prompt}` : prompt;
+
+  CHAT_HISTORY.push({role:'model',content:'⏳ Thinking...'});
+  renderChatMessages(targetMsgs);
+
+  try{
+    const r=await api('/ai/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:fullPrompt})});
+    CHAT_HISTORY[CHAT_HISTORY.length-1].content = r.answer;
+  }catch(e){
+    CHAT_HISTORY[CHAT_HISTORY.length-1].content = `❌ Error: ${e.message}`;
+  }
+  renderChatMessages(targetMsgs);
+}
+
+function renderChatMessages(container){
+  container.innerHTML = CHAT_HISTORY.map(m=>`
+    <div class="chat-msg">
+      <div class="chat-avatar ${m.role==='user'?'user':'ai'}">${m.role==='user'?'👤':'🤖'}</div>
+      <div class="chat-bubble">${esc(m.content)}</div>
+    </div>`).join('');
+  container.scrollTop = container.scrollHeight;
+}
+
+$('btnAsk').addEventListener('click',()=>sendAIMessage($('aiPrompt').value,$('chatMessages'),$('aiPrompt')));
+$('aiPrompt').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();$('btnAsk').click()}});
+$('btnChatSend').addEventListener('click',()=>sendAIMessage($('chatModePrompt').value,$('chatModeMessages'),$('chatModePrompt')));
+$('chatModePrompt').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();$('btnChatSend').click()}});
+
+/* ── INIT ──────────────────────────────────────────────────────────────── */
 init();
 </script>
 </body>

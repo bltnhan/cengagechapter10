@@ -21,12 +21,12 @@ from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from rq.exceptions import NoSuchJobError
 from rq.job import Job, JobStatus
 
-from core import ai, dataio, excel_export, prep
+from core import ai, dataio, eda, excel_export, prep
 
 from .config import settings
 from .queue import get_connection, get_queue, is_async
-from .schemas import AskRequest, PrepRequest, RunRequest
-from .serializers import dataset_summary, mlresult_to_json
+from .schemas import AskRequest, PrepRequest, RunRequest, ReloadRequest
+from .serializers import dataset_summary, mlresult_to_json, table_to_json
 from .store import store
 from .tasks import execute_run
 
@@ -129,6 +129,74 @@ async def upload_dataset(
 @app.get("/datasets/{dataset_id}")
 def get_dataset(dataset_id: str):
     return dataset_summary(_get_ds(dataset_id), prep)
+
+
+@app.get("/datasets/{dataset_id}/profile")
+def get_profile(dataset_id: str):
+    """Column-level statistics (type, missing, unique, stats, sample) cho EDA overview."""
+    ds = _get_ds(dataset_id)
+    desc_df = ds.df.describe(include="all")
+    return {
+        "dataset_id": ds.id,
+        "columns": eda.column_profile(ds.df),
+        "describe": table_to_json(desc_df),
+    }
+
+
+@app.post("/datasets/{dataset_id}/reload")
+def reload_dataset(dataset_id: str, req: ReloadRequest):
+    """Đọc lại Excel sheet hoặc thay đổi dòng header row."""
+    ds = _get_ds(dataset_id)
+    if not ds.file_cache:
+        raise HTTPException(status_code=400, detail="dataset không hỗ trợ reload (thiếu file_cache)")
+    
+    def _mutate_reload(ds_obj):
+        raw_bytes = ds_obj.file_cache["raw_bytes"]
+        engine = ds_obj.file_cache["engine"]
+        sheet_names = ds_obj.file_cache["sheet_names"]
+        
+        chosen = req.sheet_name or ds_obj.file_cache.get("current_sheet") or sheet_names[0]
+        if chosen not in sheet_names:
+            raise ValueError(f"sheet '{chosen}' không tồn tại")
+            
+        new_df = dataio.load_sheet(raw_bytes, chosen, engine, req.header_row)
+        
+        ds_obj.df = new_df
+        orig_filename = ds_obj.name.split("::")[0] if "::" in ds_obj.name else ds_obj.name
+        ds_obj.name = f"{orig_filename}::{chosen}"
+        ds_obj.file_cache["current_sheet"] = chosen
+        
+        ds_obj.history = []
+        ds_obj.enc_mapping = {}
+        return "Reloaded successfully"
+        
+    try:
+        updated, msg = store._mutate(dataset_id, _mutate_reload)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+        
+    return {
+        "message": msg,
+        **dataset_summary(updated, prep),
+        "problems": prep.detect_problems(updated.df),
+    }
+
+
+@app.get("/datasets/{dataset_id}/eda")
+def get_eda(dataset_id: str):
+    """Generate EDA charts (distributions, correlations, missing, outliers) as base64 PNG."""
+    import base64
+    ds = _get_ds(dataset_id)
+    result = eda.generate_eda(ds.df)
+    resp = {
+        "dataset_id": ds.id,
+        "profile": result["profile"],
+        "strong_correlations": result["strong_correlations"],
+    }
+    for key in ("distributions", "categorical", "correlation_heatmap", "missing_chart", "outlier_boxplots"):
+        png = result.get(key)
+        resp[key] = base64.b64encode(png).decode("ascii") if png else None
+    return resp
 
 
 # ── STEP 2: prep ─────────────────────────────────────────────────────────────
