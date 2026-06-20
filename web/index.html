@@ -476,29 +476,43 @@ details>.detail-body{padding:0 14px 12px}
      </div>
  
      <div class="sb-input-group" id="sb-sheet-wrap" style="display:none">
-       <label>📋 CHỌN SHEET</label>
-       <select id="sb-sheet"></select>
-     </div>
- 
-     <div class="sb-apikey">
-       <div class="sb-section" style="margin-top:0">API KEYS</div>
-       <label>Gemini (aistudio.google.com)</label>
-       <div class="password-container">
-         <input type="password" id="apiKeyGemini" placeholder="AIza..." />
-         <span class="password-toggle" id="toggleGemini">👁️</span>
-       </div>
-       <label style="margin-top:6px">OpenRouter (openrouter.ai) — fallback</label>
-       <div class="password-container">
-         <input type="password" id="apiKeyOR" placeholder="sk-or-..." />
-         <span class="password-toggle" id="toggleOR">👁️</span>
-       </div>
-       <div style="display:flex; align-items:center; gap:6px; margin-top:8px; margin-bottom: 4px;">
-         <input type="checkbox" id="noKey" style="width:auto; margin:0;" />
-         <span style="font-size:.68rem; color:var(--muted2); line-height:1.2;">No key — ML runs fine; AI explanations disabled.</span>
-       </div>
-       <div class="muted2" style="font-size:.65rem;margin-top:4px">🔒 Keys chỉ lưu trong browser</div>
-     </div>
-   </aside>
+        <label>📋 CHỌN SHEET</label>
+        <select id="sb-sheet"></select>
+      </div>
+
+      <div class="sb-apikey">
+        <div class="sb-section" style="margin-top:0">API KEYS</div>
+        <label>Gemini (aistudio.google.com)</label>
+        <div class="password-container">
+          <input type="password" id="apiKeyGemini" placeholder="AIza..." />
+          <span class="password-toggle" id="toggleGemini">👁️</span>
+        </div>
+        <label style="margin-top:6px">OpenRouter (openrouter.ai) — fallback</label>
+        <div class="password-container">
+          <input type="password" id="apiKeyOR" placeholder="sk-or-..." />
+          <span class="password-toggle" id="toggleOR">👁️</span>
+        </div>
+        
+        <!-- AI ready banner -->
+        <div id="aiReadyBanner" style="display:none; background:var(--green-bg); border-left:3px solid var(--green2); padding:8px 10px; border-radius:0 6px 6px 0; margin-top:10px; font-size:.78rem; font-weight:600; color:var(--green);">
+          AI ready: <span id="aiReadyName">Gemini</span>
+        </div>
+        
+        <!-- Test AI connection button -->
+        <div id="aiTestContainer" style="display:none; margin-top:8px;">
+          <button id="btnTestAI" class="btn-sm btn-sec" style="width:100%; justify-content:center; font-size:0.76rem; padding:6px 10px; background:linear-gradient(135deg,#2563eb,var(--blue2)); color:#fff; border:0;">🔑 Test kết nối AI</button>
+        </div>
+        
+        <!-- Test status message -->
+        <div id="aiTestStatus" style="margin-top:6px;"></div>
+
+        <!-- No key info text -->
+        <div id="noKeyText" style="font-size:.74rem; color:var(--muted2); padding:8px 0; display:flex; align-items:center; gap:6px;">
+          ⚪ No key — ML runs fine; AI explanations disabled.
+        </div>
+        <div class="muted2" style="font-size:.65rem;margin-top:4px">🔒 Keys chỉ lưu trong browser</div>
+      </div>
+    </aside>
  
    <!-- ═══ MAIN ═══ -->
    <div class="main">
@@ -861,22 +875,62 @@ async function init(){
   $('apiKeyOR').addEventListener('input', () => {
     localStorage.setItem('apiKeyOR', $('apiKeyOR').value);
   });
-
-  // No key checkbox logic
-  const updateKeyStates = () => {
-    const isNoKey = $('noKey').checked;
-    $('apiKeyGemini').disabled = isNoKey;
-    $('apiKeyOR').disabled = isNoKey;
-    $('apiKeyGemini').style.opacity = isNoKey ? '0.5' : '1';
-    $('apiKeyOR').style.opacity = isNoKey ? '0.5' : '1';
-    localStorage.setItem('noKey', isNoKey ? 'true' : 'false');
+  // AI Key status and test connection logic
+  const checkKeysState = () => {
+    const geminiKey = $('apiKeyGemini').value.trim();
+    const orKey = $('apiKeyOR').value.trim();
+    const gOk = geminiKey.length > 0;
+    const oOk = orKey.length > 0;
+    if (gOk || oOk) {
+      $('aiReadyBanner').style.display = 'block';
+      $('aiReadyName').textContent = gOk ? 'Gemini' : 'OpenRouter';
+      $('aiTestContainer').style.display = 'block';
+      $('noKeyText').style.display = 'none';
+    } else {
+      $('aiReadyBanner').style.display = 'none';
+      $('aiTestContainer').style.display = 'none';
+      $('noKeyText').style.display = 'flex';
+      $('aiTestStatus').innerHTML = '';
+    }
   };
-  $('noKey').addEventListener('change', updateKeyStates);
   
-  if (localStorage.getItem('noKey') === 'true') {
-    $('noKey').checked = true;
-    updateKeyStates();
-  }
+  $('apiKeyGemini').addEventListener('input', checkKeysState);
+  $('apiKeyOR').addEventListener('input', checkKeysState);
+  
+  // Trigger once on load
+  checkKeysState();
+  
+  $('btnTestAI').addEventListener('click', async () => {
+    const btn = $('btnTestAI');
+    const statusEl = $('aiTestStatus');
+    btn.disabled = true;
+    statusEl.innerHTML = '<span class="spinner"></span>Đang kiểm tra…';
+    
+    const geminiKey = $('apiKeyGemini').value.trim();
+    const orKey = $('apiKeyOR').value.trim();
+    
+    try {
+      const r = await api('/ai/ask', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          prompt: "Trả lời đúng 5 chữ: 'Kết nối thành công!'",
+          gemini_key: geminiKey,
+          openrouter_key: orKey
+        })
+      });
+      const answer = r.answer || '';
+      if (answer.includes('❌') || answer.includes('⚠️')) {
+        statusEl.innerHTML = `<div class="note error">${esc(answer)}</div>`;
+      } else {
+        statusEl.innerHTML = `<div class="note success" style="margin-top:6px; display:flex; align-items:center; gap:6px;">✅ ${esc(answer.slice(0, 80))}</div>`;
+      }
+    } catch(e) {
+      statusEl.innerHTML = `<div class="note error">❌ Lỗi kết nối: ${esc(e.message)}</div>`;
+    } finally {
+      btn.disabled = false;
+    }
+  });
 
   // Sidebar sheet selector logic
   $('sb-sheet').addEventListener('change', async () => {
@@ -1070,7 +1124,7 @@ function renderDatasetInfo(){
     sheetWrap.style.display = 'none';
   }
 
-  const filesLoaded = (DS.sheet_names && DS.sheet_names.length) || 1;
+  const filesLoaded = 1;
   const missingRateStr = DS.missing_rate != null ? (DS.missing_rate * 100).toFixed(1) + '%' : '0.0%';
   const dupCountStr = DS.dup_count != null ? DS.dup_count.toLocaleString() : '0';
 
@@ -1682,8 +1736,10 @@ async function sendAIMessage(prompt, targetMsgs, targetInput){
   renderChatMessages(targetMsgs);
   targetInput.value='';
 
-  if ($('noKey') && $('noKey').checked) {
-    CHAT_HISTORY.push({role:'model',content:'🤖 AI explanations are disabled because "No key" is selected. Please uncheck "No key" and enter an API key in the sidebar to enable AI features.'});
+  const geminiKey = $('apiKeyGemini')?.value.trim() || '';
+  const orKey = $('apiKeyOR')?.value.trim() || '';
+  if (!geminiKey && !orKey) {
+    CHAT_HISTORY.push({role:'model',content:'🤖 AI explanations are disabled because no API key is entered. Please enter a Gemini or OpenRouter API key in the sidebar to enable AI features.'});
     renderChatMessages(targetMsgs);
     return;
   }
