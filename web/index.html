@@ -404,7 +404,7 @@ details>.detail-body{padding:0 14px 12px}
           </div>
         </div>
 
-        <div class="sec-hdr"><div class="sec-icon si-blue">📁</div><span class="sec-title">Upload File</span></div>
+        <div class="sec-hdr"><div class="sec-icon si-blue">📁</div><span class="sec-title">Step 1 — Load Data</span><span class="sec-sub" id="p1-sub"></span></div>
         <div class="dropzone" id="dropzone">
           <div class="icon">⬆️</div>
           <div class="label">Drop files here or click to upload</div>
@@ -417,8 +417,8 @@ details>.detail-body{padding:0 14px 12px}
 
       <!-- ── STEP 2: Prep Data ── -->
       <section class="panel" id="p2">
-        <div class="sec-hdr"><div class="sec-icon si-green">🔧</div><span class="sec-title">Data Preparation</span>
-          <span class="sec-sub">Fix issues before modeling</span></div>
+        <div class="sec-hdr"><div class="sec-icon si-green">🔧</div><span class="sec-title">Step 2 — Data Preparation</span>
+          <span class="sec-sub" id="p2-sub">Fix issues before modeling</span></div>
         <p class="muted" style="margin-bottom:12px">Phát hiện & xử lý vấn đề: thiếu giá trị, trùng lặp, outlier, mã hoá. Mỗi bước có thể Undo.</p>
         <div class="btnrow">
           <button class="btn-sm" data-op="missing">🩹 Fix Missing</button>
@@ -439,7 +439,7 @@ details>.detail-body{padding:0 14px 12px}
 
       <!-- ── STEP 3: Analysis & Profiling ── -->
       <section class="panel" id="p3">
-        <div class="sec-hdr"><div class="sec-icon si-purple">📊</div><span class="sec-title">Analysis & Profiling</span></div>
+        <div class="sec-hdr"><div class="sec-icon si-purple">📊</div><span class="sec-title">Step 3 — Analysis & Profiling</span><span class="sec-sub" id="p3-sub"></span></div>
 
         <div class="tabs" id="step3tabs">
           <button class="tab-btn active" data-tab="eda">📋 EDA Profiling</button>
@@ -510,7 +510,7 @@ details>.detail-body{padding:0 14px 12px}
 
       <!-- ── STEP 4: Results & AI ── -->
       <section class="panel" id="p4">
-        <div class="sec-hdr"><div class="sec-icon si-amber">🏆</div><span class="sec-title">Results & AI Insights</span></div>
+        <div class="sec-hdr"><div class="sec-icon si-amber">🏆</div><span class="sec-title">Step 4 — Results & AI Insights</span><span class="sec-sub" id="p4-sub"></span></div>
 
         <div id="results"><p class="muted">Chưa có kết quả. Chạy một mô hình ở bước 3.</p></div>
 
@@ -834,6 +834,7 @@ function renderWorkingBar(){
 /* ── DATASET INFO ──────────────────────────────────────────────────────── */
 function renderDatasetInfo(){
   $('welcomeBox').style.display='none';
+  if($('p1-sub')) $('p1-sub').textContent = `${DS.columns.length} columns loaded`;
   
   let chips = '';
   if(DS.sheet_names && DS.sheet_names.length>1){
@@ -917,12 +918,32 @@ $('btnUpload').addEventListener('click', async ()=>{
 });
 
 /* ── STEP 2: PREP ──────────────────────────────────────────────────────── */
+const problemEmojis = {
+  missing: '🩹 ',
+  outlier: '📏 ',
+  encoding: '🔠 ',
+  duplicate: '🗑️ ',
+  scale: '⚖️ ',
+  ok: '✅ '
+};
+
+function formatProblems(problems){
+  if(!problems || !problems.length) return '';
+  return problems.map(p=>`
+    <div class="prob">
+      <span class="chip ${p.sev}">${problemEmojis[p.type] || ''}${esc(p.type)}</span>
+      <div>
+        <div>${esc(p.msg)}</div>
+        ${p.fix ? `<div class="muted2" style="font-size:.72rem">→ ${esc(p.fix)}</div>` : ''}
+      </div>
+    </div>
+  `).join('');
+}
+
 async function loadProblems(){
   try{
     const r=await api(`/datasets/${DS.dataset_id}/problems`);
-    $('problems').innerHTML = r.problems.map(p=>`
-      <div class="prob"><span class="chip ${p.sev}">${esc(p.type)}</span>
-        <div><div>${esc(p.msg)}</div>${p.fix?`<div class="muted2" style="font-size:.72rem">→ ${esc(p.fix)}</div>`:''}</div></div>`).join('');
+    $('problems').innerHTML = formatProblems(r.problems);
     renderPreviewTabs('prep-preview', DS.preview, DS_PROFILE);
   }catch(e){log('Lỗi /problems: '+e.message)}
 }
@@ -952,8 +973,7 @@ $('btnUndo').addEventListener('click', async ()=>{
 
 function renderAfterPrep(r){
   renderPreviewTabs('prep-preview', r.preview, DS_PROFILE);
-  if(r.problems) $('problems').innerHTML = r.problems.map(p=>`
-    <div class="prob"><span class="chip ${p.sev}">${esc(p.type)}</span><div>${esc(p.msg)}</div></div>`).join('');
+  if(r.problems) $('problems').innerHTML = formatProblems(r.problems);
   fillColumns();
 }
 
@@ -974,6 +994,7 @@ function selectedFeatures(){ return [...$$('#features input:checked')].map(i=>i.
 function onTaskChange(){
   if(!META) return;
   const task=$('task').value;
+  if($('p3-sub')) $('p3-sub').textContent = `Task: ${task.toUpperCase()}`;
   const methods=(META.methods[task]||[]);
   
   $('method').innerHTML = methods.map(m=>`<option>${esc(m)}</option>`).join('');
@@ -998,25 +1019,21 @@ function onTaskChange(){
         `;
       }).join('');
       
-      if(methods.length > 0) {
-        $('method').value = methods[0];
-        $('method').dispatchEvent(new Event('change'));
-      }
+      renderHyperparams();
       
       container.querySelectorAll('.method-card').forEach(card=>{
         card.addEventListener('click', ()=>{
-          container.querySelectorAll('.method-card').forEach(c=>{
-            c.classList.remove('sel');
-            const nameEl = c.querySelector('.method-name');
-            nameEl.textContent = nameEl.textContent.replace('✅ ', '');
-          });
-          card.classList.add('sel');
           const nameEl = card.querySelector('.method-name');
-          nameEl.textContent = '✅ ' + nameEl.textContent;
-          
-          const val = card.dataset.method;
-          $('method').value = val;
-          $('method').dispatchEvent(new Event('change'));
+          if(card.classList.contains('sel')) {
+            card.classList.remove('sel');
+            nameEl.textContent = nameEl.textContent.replace('✅ ', '');
+          } else {
+            card.classList.add('sel');
+            if(!nameEl.textContent.includes('✅ ')) {
+              nameEl.textContent = '✅ ' + nameEl.textContent;
+            }
+          }
+          renderHyperparams();
         });
       });
     }
@@ -1046,60 +1063,132 @@ const HP_DEFS = {
   'Neural Networks (MLP)': [{id:'activation',label:'Activation',type:'select',opts:['relu','tanh','logistic'],val:'relu'},{id:'learning_rate_init',label:'Learning rate',type:'number',val:0.001,step:0.0001,min:0.0001}],
 };
 
-function renderHyperparams(){
-  const method=$('method').value;
-  const defs=HP_DEFS[method];
-  if(!defs||!defs.length){$('hp-section').classList.add('hide');return;}
-  $('hp-section').classList.remove('hide');
-  $('hp-grid').innerHTML = defs.map(d=>{
-    if(d.type==='select') return `<div><label>${d.label}</label><select data-hp="${d.id}">${d.opts.map(o=>`<option${o===d.val?' selected':''}>${o}</option>`).join('')}</select></div>`;
-    return `<div><label>${d.label}</label><input type="number" data-hp="${d.id}" value="${d.val}" ${d.step?`step="${d.step}"`:''} ${d.min!=null?`min="${d.min}"`:''} ${d.max!=null?`max="${d.max}"`:''}/></div>`;
-  }).join('');
+function getSelectedMethods(){
+  return [...document.querySelectorAll('#method-cards-container .method-card.sel')].map(c => c.dataset.method);
 }
 
-function getHyperparams(){
+function getHyperparamsForMethod(method){
   const hp={};
-  $$('#hp-grid [data-hp]').forEach(el=>{
+  document.querySelectorAll(`#hp-grid [data-method="${method}"]`).forEach(el=>{
     const v=el.value;
     hp[el.dataset.hp]=isNaN(Number(v))?v:Number(v);
   });
   return Object.keys(hp).length?hp:undefined;
 }
 
+function renderHyperparams(){
+  const selected = getSelectedMethods();
+  if(!selected.length){
+    $('hp-section').classList.add('hide');
+    $('hp-grid').innerHTML = '';
+    return;
+  }
+  
+  let html = '';
+  let hasAny = false;
+  
+  selected.forEach(m => {
+    const defs = HP_DEFS[m];
+    if(defs && defs.length) {
+      hasAny = true;
+      html += `
+        <div style="grid-column: 1 / -1; font-size:.82rem; font-weight:700; color:var(--blue); margin-top:10px; border-bottom: 1px solid var(--border); padding-bottom:4px;">
+          ⚙️ ${esc(m)}
+        </div>
+      `;
+      html += defs.map(d=>{
+        if(d.type==='select') return `<div><label>${d.label}</label><select data-method="${esc(m)}" data-hp="${d.id}">${d.opts.map(o=>`<option${o===d.val?' selected':''}>${o}</option>`).join('')}</select></div>`;
+        return `<div><label>${d.label}</label><input type="number" data-method="${esc(m)}" data-hp="${d.id}" value="${d.val}" ${d.step?`step="${d.step}"`:''} ${d.min!=null?`min="${d.min}"`:''} ${d.max!=null?`max="${d.max}"`:''}/></div>`;
+      }).join('');
+    }
+  });
+  
+  if(!hasAny){
+    $('hp-section').classList.add('hide');
+    return;
+  }
+  
+  $('hp-section').classList.remove('hide');
+  $('hp-grid').innerHTML = html;
+}
+
 /* ── STEP 3: RUN ML ────────────────────────────────────────────────────── */
 $('btnRun').addEventListener('click', async ()=>{
   const task=$('task').value;
-  const body={task, method:$('method').value,
-    test_size:parseFloat($('testsize').value), balance:$('balance').value,
-    n_clusters:parseInt($('nclusters').value),
-    min_support:parseFloat($('minsup').value), min_confidence:parseFloat($('minconf').value), min_lift:parseFloat($('minlift').value)};
-  if(task!=='association'&&task!=='clustering') body.target=$('target').value;
-  if(task!=='association') body.features=selectedFeatures();
-  const hp=getHyperparams(); if(hp) body.hyperparams=hp;
-  $('run-status').innerHTML='<span class="spinner"></span>Đang enqueue…';
-  try{
-    const j=await api(`/datasets/${DS.dataset_id}/run`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    log(`Enqueue job ${j.job_id} (${j.status})`);
-    const fin = await pollJob(j.job_id);
-    LASTJOB=fin.job_id;
-    $('run-status').innerHTML=`<div class="note success">Job ${fin.job_id} finished ✓</div>`;
-    ALL_RESULTS.push({...fin.result, _method: body.method||task, _task: task});
-    renderResults(fin.result);
+  const selected = getSelectedMethods();
+  
+  if(task!=='association' && selected.length === 0){
+    alert('Vui lòng chọn ít nhất 1 thuật toán.');
+    return;
+  }
+  
+  // Clear previous comparison results
+  ALL_RESULTS = [];
+  $('run-status').innerHTML = '';
+  
+  const runs = task === 'association' ? [null] : selected;
+  
+  try {
+    for(const method of runs) {
+      const body={
+        task, 
+        method: method,
+        test_size: parseFloat($('testsize').value), 
+        balance: $('balance').value,
+        n_clusters: parseInt($('nclusters').value),
+        min_support: parseFloat($('minsup').value), 
+        min_confidence: parseFloat($('minconf').value), 
+        min_lift: parseFloat($('minlift').value)
+      };
+      if(task!=='association'&&task!=='clustering') body.target=$('target').value;
+      if(task!=='association') body.features=selectedFeatures();
+      
+      const hp=getHyperparamsForMethod(method); 
+      if(hp) body.hyperparams=hp;
+      
+      const methodLabel = method || 'Association Rules';
+      const statusId = `status-${methodLabel.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      $('run-status').innerHTML += `<div id="${statusId}" style="margin-top:6px;"><span class="spinner"></span>Đang xếp hàng ${esc(methodLabel)}…</div>`;
+      
+      const j = await api(`/datasets/${DS.dataset_id}/run`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body)
+      });
+      log(`Enqueue job ${j.job_id} for ${methodLabel} (${j.status})`);
+      
+      const fin = await pollJobForMethod(j.job_id, methodLabel, statusId);
+      LASTJOB = fin.job_id;
+      
+      // Update status display
+      const statusEl = document.getElementById(statusId);
+      if(statusEl) statusEl.innerHTML = `<span style="color:var(--green)">✓ Finished: ${esc(methodLabel)}</span>`;
+      
+      ALL_RESULTS.push({...fin.result, _method: method || task, _task: task});
+    }
+    
+    // Once all finished, render the views
+    const lastResult = ALL_RESULTS[ALL_RESULTS.length - 1];
+    renderResults(lastResult);
     renderFitnessReport(ALL_RESULTS);
     renderComparisonTable(ALL_RESULTS);
     gotoStep(4);
-  }catch(e){$('run-status').innerHTML=`<div class="note error">${esc(e.message)}</div>`;log('Run lỗi: '+e.message)}
+  } catch(e) {
+    $('run-status').innerHTML += `<div class="note error">${esc(e.message)}</div>`;
+    log('Run lỗi: ' + e.message);
+  }
 });
 
-async function pollJob(id){
+async function pollJobForMethod(id, methodLabel, statusId){
+  const el = document.getElementById(statusId);
   for(let i=0;i<150;i++){
     const j=await api(`/jobs/${id}`);
-    $('run-status').innerHTML=`<span class="spinner"></span>Job ${esc(j.status)}… (${i}s)`;
+    if(el) el.innerHTML = `<span class="spinner"></span>Đang chạy ${esc(methodLabel)}… (${i}s)`;
     if(j.status==='finished') return j;
-    if(j.status==='failed') throw new Error(j.error||'job failed');
+    if(j.status==='failed') throw new Error(`${methodLabel} thất bại: ` + (j.error || 'job failed'));
     await sleep(1500);
   }
-  throw new Error('Job timeout');
+  throw new Error(`${methodLabel} timeout`);
 }
 
 /* ── STEP 4: RENDER RESULTS ────────────────────────────────────────────── */
@@ -1129,6 +1218,7 @@ function metricsTableHTML(metrics){
 
 function renderResults(res){
   if(!res){$('results').innerHTML='<p class="muted">Không có kết quả.</p>';return;}
+  if($('p4-sub')) $('p4-sub').textContent = `${ALL_RESULTS.length} models compared`;
   let h='';
 
   // Metrics cards
