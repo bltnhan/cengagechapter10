@@ -22,9 +22,10 @@ from __future__ import annotations
 import pickle
 import uuid
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Callable, Optional
 
 import pandas as pd
+from redis.exceptions import WatchError
 
 from .config import settings
 from .queue import get_connection
@@ -41,51 +42,82 @@ class Dataset:
 
 
 class RedisStore:
-    """Lưu Dataset (pickle) vào Redis — chia sẻ giữa các web replica."""
+    """Lưu Dataset (pickle) vào Redis — chia sẻ giữa các web replica.
 
-    def __init__(self, connection, ttl: int, prefix: str = "dm"):
+    Mutation (apply_transform/undo) dùng WATCH/MULTI (optimistic lock) + retry để an
+    toàn khi nhiều replica sửa CÙNG dataset: hàm `compute` chạy TRÊN df mới nhất bên
+    trong vùng khóa, nên không bị lost-update lẫn compute-from-stale.
+    """
+
+    def __init__(self, connection, ttl: int, prefix: str = "dm", max_history: int = 50, retries: int = 8):
         self._conn = connection
         self._ttl = ttl
         self._prefix = prefix
+        self._max_history = max_history
+        self._retries = retries
 
     def _key(self, dataset_id: str) -> str:
         return f"{self._prefix}:dataset:{dataset_id}"
 
-    def _save(self, ds: Dataset) -> None:
-        self._conn.set(self._key(ds.id), pickle.dumps(ds), ex=self._ttl)
-
     # ── datasets ─────────────────────────────────────────────────────────────
     def add_dataset(self, name: str, df: pd.DataFrame, file_cache: Optional[dict] = None) -> Dataset:
         ds = Dataset(id=uuid.uuid4().hex[:12], name=name, df=df, file_cache=file_cache)
-        self._save(ds)
+        self._conn.set(self._key(ds.id), pickle.dumps(ds), ex=self._ttl)
         return ds
 
     def get_dataset(self, dataset_id: str) -> Dataset:
         blob = self._conn.get(self._key(dataset_id))
         if blob is None:
             raise KeyError(dataset_id)
-        # gia hạn TTL cho dataset đang được dùng
-        self._conn.expire(self._key(dataset_id), self._ttl)
+        self._conn.expire(self._key(dataset_id), self._ttl)  # gia hạn TTL khi dùng
         return pickle.loads(blob)
 
-    def apply_transform(self, dataset_id: str, label: str, new_df: pd.DataFrame,
-                        enc_mapping: Optional[dict] = None) -> Dataset:
-        """Đẩy snapshot hiện tại vào history rồi thay df. Trả về Dataset đã cập nhật."""
-        ds = self.get_dataset(dataset_id)
-        ds.history.append((label, ds.df))
-        ds.df = new_df
-        if enc_mapping is not None:
-            ds.enc_mapping = enc_mapping
-        self._save(ds)
-        return ds
+    def _mutate(self, dataset_id: str, fn: "Callable[[Dataset], object]"):
+        """get-modify-set nguyên tử qua WATCH/MULTI. fn(ds) sửa ds tại chỗ, trả aux.
+        Trả về (ds_đã_cập_nhật, aux)."""
+        key = self._key(dataset_id)
+        with self._conn.pipeline() as pipe:
+            for _ in range(self._retries):
+                try:
+                    pipe.watch(key)
+                    blob = pipe.get(key)
+                    if blob is None:
+                        pipe.reset()
+                        raise KeyError(dataset_id)
+                    ds = pickle.loads(blob)
+                    aux = fn(ds)                       # compute + mutate trên df MỚI NHẤT
+                    pipe.multi()
+                    pipe.set(key, pickle.dumps(ds), ex=self._ttl)
+                    pipe.execute()
+                    return ds, aux
+                except WatchError:
+                    continue                            # có replica khác vừa ghi → thử lại
+        raise RuntimeError(f"store contention: không cập nhật được dataset {dataset_id}")
+
+    def apply_transform(self, dataset_id: str, compute: "Callable[[pd.DataFrame], tuple]") -> tuple:
+        """compute(df) -> (new_df, label, enc_mapping|None). Chạy trong khóa. Trả (ds, label)."""
+        def fn(ds: Dataset):
+            new_df, label, enc = compute(ds.df)
+            # lưu cả enc_mapping cũ vào history để undo khôi phục đúng
+            ds.history.append((label, ds.df, ds.enc_mapping))
+            if len(ds.history) > self._max_history:
+                del ds.history[:-self._max_history]
+            ds.df = new_df
+            if enc:                                     # chỉ ghi khi có mapping THẬT ({} không xóa mapping cũ)
+                ds.enc_mapping = enc
+            return label
+        return self._mutate(dataset_id, fn)
 
     def undo(self, dataset_id: str) -> Dataset:
-        ds = self.get_dataset(dataset_id)
-        if ds.history:
-            _label, prev = ds.history.pop()
-            ds.df = prev
-        self._save(ds)
+        def fn(ds: Dataset):
+            if ds.history:
+                entry = ds.history.pop()
+                ds.df = entry[1]
+                ds.enc_mapping = entry[2] if len(entry) > 2 else {}  # khôi phục cả enc_mapping
+            return None
+        ds, _ = self._mutate(dataset_id, fn)
         return ds
 
 
-store = RedisStore(get_connection(), ttl=settings.dataset_ttl, prefix=settings.redis_key_prefix)
+store = RedisStore(get_connection(), ttl=settings.dataset_ttl, prefix=settings.redis_key_prefix,
+                   max_history=settings.dataset_max_history)

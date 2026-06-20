@@ -30,6 +30,7 @@ class Settings:
     # ── Dataset store (Redis — để web scale nhiều replica) ──
     redis_key_prefix: str = os.getenv("REDIS_KEY_PREFIX", "dm")
     dataset_ttl: int = int(os.getenv("DATASET_TTL", "86400"))    # 24h — dataset hết hạn nếu không dùng
+    dataset_max_history: int = int(os.getenv("DATASET_MAX_HISTORY", "50"))  # giới hạn undo-stack
 
 
 settings = Settings()

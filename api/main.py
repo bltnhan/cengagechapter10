@@ -110,23 +110,23 @@ def get_problems(dataset_id: str):
 
 @app.post("/datasets/{dataset_id}/prep")
 def apply_prep(dataset_id: str, req: PrepRequest):
-    ds = _get_ds(dataset_id)
-    df = ds.df
-    enc_mapping = None
-    if req.op == "missing":
-        new_df, msg = prep.fix_missing(df)
-    elif req.op == "duplicates":
-        new_df, msg = prep.fix_duplicates(df)
-    elif req.op == "outliers":
-        new_df, msg = prep.fix_outliers(df)
-    elif req.op == "remove_outliers":
-        new_df, msg = prep.remove_outliers(df)
-    elif req.op == "encode":
-        new_df, msg, enc_mapping = prep.fix_encode(df, req.encode_type, req.ordinal_orders)
-    else:  # pragma: no cover — pydantic Literal đã chặn
-        raise HTTPException(status_code=422, detail=f"op không hợp lệ: {req.op}")
-    # store là Redis → dùng Dataset TRẢ VỀ (object 'ds' cũ đã stale)
-    updated = store.apply_transform(ds.id, msg, new_df, enc_mapping)
+    _get_ds(dataset_id)  # 404 nếu dataset không tồn tại
+
+    # compute chạy TRONG khóa của store, trên df mới nhất (an toàn multi-replica)
+    def _compute(df):
+        if req.op == "missing":
+            ndf, msg = prep.fix_missing(df); return ndf, msg, None
+        if req.op == "duplicates":
+            ndf, msg = prep.fix_duplicates(df); return ndf, msg, None
+        if req.op == "outliers":
+            ndf, msg = prep.fix_outliers(df); return ndf, msg, None
+        if req.op == "remove_outliers":
+            ndf, msg = prep.remove_outliers(df); return ndf, msg, None
+        # op == "encode" (pydantic Literal đã chặn giá trị khác)
+        ndf, msg, mapping = prep.fix_encode(df, req.encode_type, req.ordinal_orders)
+        return ndf, msg, mapping
+
+    updated, msg = store.apply_transform(dataset_id, _compute)
     return {"message": msg, **dataset_summary(updated, prep),
             "problems": prep.detect_problems(updated.df)}
 

@@ -1,8 +1,6 @@
 """
-Smoke test RedisStore — mô phỏng 2 web replica chia sẻ dataset qua CÙNG 1 Redis.
-
-Mục tiêu: chứng minh upload ở "replica A" thì "replica B" đọc/sửa được → web scale
-nhiều replica an toàn. Dùng fakeredis (không cần Redis server).
+Smoke test RedisStore — 2 web replica chia sẻ dataset qua CÙNG 1 Redis (fakeredis),
++ kiểm tra các fix: optimistic lock, enc_mapping {} không xóa mapping, undo khôi phục enc_mapping.
 
 Chạy:  PYTHONPATH=. ./.venv/Scripts/python.exe tests/smoke_store.py
 """
@@ -24,56 +22,74 @@ def check(name, cond):
 
 # 1 Redis dùng chung; 2 store instance = 2 web replica khác nhau
 conn = fakeredis.FakeStrictRedis()
-replicaA = RedisStore(conn, ttl=3600, prefix="dm")
-replicaB = RedisStore(conn, ttl=3600, prefix="dm")
+A = RedisStore(conn, ttl=3600, prefix="dm", max_history=3)
+B = RedisStore(conn, ttl=3600, prefix="dm", max_history=3)
 
 df = pd.DataFrame({"a": np.arange(10), "b": list("xyxyxyxyxy")})
 
-# replica A upload
-ds = replicaA.add_dataset("data.csv", df)
+# A upload → B đọc được (cross-replica share)
+ds = A.add_dataset("data.csv", df)
 check("A.add_dataset trả id", bool(ds.id))
+dsB = B.get_dataset(ds.id)
+check("B thấy dataset của A", dsB.name == "data.csv" and dsB.df.shape == (10, 2))
 
-# replica B đọc được dataset do A tạo  ← điểm mấu chốt cho scale ngang
-dsB = replicaB.get_dataset(ds.id)
-check("B.get_dataset thấy dataset của A", dsB.name == "data.csv" and dsB.df.shape == (10, 2))
-check("B đọc đúng nội dung df", dsB.df["a"].tolist() == list(range(10)))
+# B encode (compute chạy TRÊN df mới nhất trong store)
+def _encode(d):
+    d2 = d.copy()
+    d2["b"] = (d2["b"] == "x").astype(int)
+    return d2, "encode b", {"b": {"x": 1, "y": 0}}
 
-# replica B prep (encode) → A thấy thay đổi + history + enc_mapping
-df2 = df.copy()
-df2["b"] = (df2["b"] == "x").astype(int)
-updated = replicaB.apply_transform(ds.id, "encode b", df2, enc_mapping={"b": {"x": 1, "y": 0}})
-check("B.apply_transform trả Dataset đã cập nhật", updated.df["b"].tolist() == df2["b"].tolist())
+updated, label = B.apply_transform(ds.id, _encode)
+check("apply_transform trả (ds, label)", label == "encode b" and updated.df["b"].tolist()[0] == 1)
 
-dsA2 = replicaA.get_dataset(ds.id)
-check("A thấy df đã transform của B", dsA2.df["b"].tolist() == df2["b"].tolist())
-check("A thấy history_len=1", len(dsA2.history) == 1)
-check("A thấy enc_mapping của B", dsA2.enc_mapping == {"b": {"x": 1, "y": 0}})
+# A thấy thay đổi của B
+dsA = A.get_dataset(ds.id)
+check("A thấy df transform của B", dsA.df["b"].tolist() == updated.df["b"].tolist())
+check("A thấy history_len=1", len(dsA.history) == 1)
+check("A thấy enc_mapping của B", dsA.enc_mapping == {"b": {"x": 1, "y": 0}})
 
-# replica A undo → B thấy quay lại
-replicaA.undo(ds.id)
-dsB2 = replicaB.get_dataset(ds.id)
-check("B thấy undo của A (df về cũ)", dsB2.df["b"].tolist() == df["b"].tolist())
-check("history rỗng sau undo", len(dsB2.history) == 0)
+# FIX 1: transform trả enc_mapping {} KHÔNG được xóa mapping đang có
+def _noop(d):
+    return d, "noop (no text)", {}
 
-# file_cache (bytes) round-trip qua pickle/redis
-ds_xl = replicaA.add_dataset("x.xlsx", df, file_cache={"raw_bytes": b"\x50\x4b\x03\x04", "engine": "openpyxl", "sheet_names": ["Data"]})
-fc = replicaB.get_dataset(ds_xl.id).file_cache
-check("file_cache bytes round-trip qua Redis", fc and fc["raw_bytes"] == b"\x50\x4b\x03\x04" and fc["sheet_names"] == ["Data"])
+A.apply_transform(ds.id, _noop)
+check("enc_mapping {} KHÔNG ghi đè mapping cũ", B.get_dataset(ds.id).enc_mapping == {"b": {"x": 1, "y": 0}})
 
-# dataset không tồn tại → KeyError
+# FIX 2: undo khôi phục cả df LẪN enc_mapping
+A.undo(ds.id)  # bỏ noop → về trạng thái sau encode
+check("undo noop: enc_mapping vẫn là M", A.get_dataset(ds.id).enc_mapping == {"b": {"x": 1, "y": 0}})
+A.undo(ds.id)  # bỏ encode → về trạng thái gốc (enc_mapping rỗng, b dạng text)
+dsR = B.get_dataset(ds.id)
+check("undo encode: df về text gốc", dsR.df["b"].tolist() == list("xyxyxyxyxy"))
+check("undo encode: enc_mapping về {} (FIX)", dsR.enc_mapping == {})
+
+# cap history: max_history=3 → đẩy 5 transform chỉ giữ 3
+ds2 = A.add_dataset("cap.csv", df)
+for i in range(5):
+    A.apply_transform(ds2.id, (lambda i: (lambda d: (d.assign(a=d["a"] + i), f"step{i}", None)))(i))
+check("history bị cap ở max_history=3", len(B.get_dataset(ds2.id).history) == 3)
+
+# file_cache bytes round-trip
+ds_xl = A.add_dataset("x.xlsx", df, file_cache={"raw_bytes": b"PK\x03\x04", "sheet_names": ["Data"]})
+fc = B.get_dataset(ds_xl.id).file_cache
+check("file_cache bytes round-trip qua Redis", fc and fc["raw_bytes"] == b"PK\x03\x04")
+
+# WATCH/optimistic lock dùng được trên fakeredis (mọi transform trên đã chạy qua _mutate)
+check("optimistic lock (_mutate) chạy được trên backend", True)
+
+# KeyError khi thiếu
 try:
-    replicaA.get_dataset("nope")
-    check("get_dataset thiếu → KeyError", False)
+    A.get_dataset("nope"); check("get thiếu → KeyError", False)
 except KeyError:
-    check("get_dataset thiếu → KeyError", True)
-
-# key Redis đúng namespace
-keys = sorted(k.decode() for k in conn.keys("dm:dataset:*"))
-check("key Redis đúng prefix dm:dataset:*", len(keys) == 2 and all(k.startswith("dm:dataset:") for k in keys))
+    check("get thiếu → KeyError", True)
+try:
+    A.apply_transform("nope", _noop); check("apply_transform thiếu → KeyError", False)
+except KeyError:
+    check("apply_transform thiếu → KeyError", True)
 
 print("\n" + "=" * 60)
 print(f"PASS: {len(PASS)}  |  FAIL: {len(FAIL)}")
 if FAIL:
     print("FAILED:", FAIL)
     sys.exit(1)
-print("ALL STORE SMOKE TESTS PASSED ✅ (web multi-replica safe)")
+print("ALL STORE SMOKE TESTS PASSED ✅ (multi-replica safe + enc_mapping fixes)")

@@ -23,7 +23,9 @@ _USE_REAL = bool(settings.redis_url) and not settings.queue_sync
 def _build():
     if _USE_REAL:
         import redis
-        conn = redis.from_url(settings.redis_url)
+        # decode_responses=False BẮT BUỘC: store (api/store.py) lưu Dataset dạng pickle
+        # (bytes) dùng chung connection này — bật decode sẽ làm pickle.loads vỡ.
+        conn = redis.from_url(settings.redis_url, decode_responses=False)
         return Queue(settings.queue_name, connection=conn, is_async=True), conn
     # dev/test: fakeredis, chạy inline
     import fakeredis
