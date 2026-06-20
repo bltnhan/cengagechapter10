@@ -34,14 +34,13 @@ Kiến trúc chạy trên Railway gồm **3 service** trong cùng 1 project, chu
 - **Settings → Networking → Generate Domain** để có URL public (Swagger: `https://<domain>/docs`).
 
 ## 4. Service WORKER (tạo thêm từ CÙNG repo)
+Image dùng chung; vai trò chọn bằng biến môi trường `ROLE` (xem `start.sh`), KHÔNG cần đổi start command.
 1. **Add → GitHub Repo** (cùng repo/branch) → tạo service thứ hai.
-2. **Settings → Deploy → Custom Start Command**: `python worker.py`
-   - (Build vẫn dùng chung Dockerfile; chỉ khác start command.)
-3. **Variables** (giống web): `REDIS_URL=${{Redis.REDIS_URL}}`, `GEMINI_KEY`, `OPENROUTER_KEY`.
-4. KHÔNG cần domain/healthcheck cho worker.
-5. **Scale**: tăng số replica của worker (Settings → Replicas) để xử lý nhiều job song song.
+2. **Variables**: `ROLE=worker`, `REDIS_URL=${{Redis.REDIS_URL}}`, `GEMINI_KEY`, `OPENROUTER_KEY`.
+3. KHÔNG cần domain/healthcheck cho worker.
+4. **Scale**: tăng số replica của worker (Settings → Replicas) để xử lý nhiều job song song.
 
-> Trên Railway (Linux) `worker.py` dùng RQ `Worker` (fork). Không cần đụng gì thêm.
+> Trên Railway (Linux) `worker.py` dùng RQ `Worker` (fork). `start.sh` tự `exec python worker.py` khi `ROLE=worker`.
 
 ## 5. Kiểm tra
 ```bash

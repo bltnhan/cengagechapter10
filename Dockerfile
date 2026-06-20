@@ -25,9 +25,9 @@ RUN pip install -r requirements-api.txt
 # Chỉ copy phần cần cho API/worker (KHÔNG copy Streamlit.py / Next.js / tài liệu)
 COPY core ./core
 COPY api ./api
-COPY worker.py ./
+COPY worker.py start.sh ./
 
 EXPOSE 8000
 
-# Mặc định chạy WEB. Railway/host sẽ cấp $PORT; fallback 8000 khi chạy local.
-CMD ["sh", "-c", "uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Vai trò chọn theo $ROLE (web mặc định / worker). Railway cấp $PORT cho web.
+CMD ["sh", "/app/start.sh"]
