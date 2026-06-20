@@ -31,6 +31,8 @@ ENV/
 *.xls
 *.json
 !sample_data/*.csv
+# config deploy — phải được track (không phải data file)
+!railway.json
 
 # Node / Next.js (legacy files, not needed for Streamlit)
 node_modules/

@@ -1,0 +1,34 @@
+# Chỉ build image API/worker — loại mọi thứ không cần để context nhỏ & nhanh.
+.venv/
+**/__pycache__/
+*.pyc
+.git/
+.gitignore
+
+# Streamlit app + Next.js (không thuộc image API)
+Streamlit.py
+.streamlit/
+posm-quotation-checker/
+app/
+components/
+lib/
+hooks/
+public/
+next.config.ts
+postcss.config.mjs
+eslint.config.mjs
+*.mjs
+
+# Test + tài liệu + ảnh
+tests/
+*.docx
+*.png
+*.jpg
+*.jpeg
+*.bat
+*.ps1
+*.zip
+data-lens-main/
+
+# requirements.txt (Streamlit) — image dùng requirements-api.txt
+requirements.txt
