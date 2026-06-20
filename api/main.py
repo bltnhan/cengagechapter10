@@ -16,7 +16,7 @@ import io
 
 import pandas as pd
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 from rq.exceptions import NoSuchJobError
 from rq.job import Job, JobStatus
 
@@ -68,7 +68,13 @@ def _job_response(job: Job) -> dict:
     return resp
 
 
-# ── health ───────────────────────────────────────────────────────────────────
+# ── root + health ────────────────────────────────────────────────────────────
+@app.get("/")
+def root():
+    # / không có nội dung API → đưa về Swagger UI cho dễ dùng
+    return RedirectResponse(url="/docs")
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "datamine-api", "version": app.version,
